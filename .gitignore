@@ -1,0 +1,23 @@
+datacow
+*.exe
+
+# Go
+/vendor/
+
+# Web build output
+/internal/web/dist/
+/web/dist/
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Test
+*.test
+coverage.out
+.claude/
+
+# Local-only context (competitive positioning, business model)
+CONTEXT.local.md

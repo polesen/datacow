@@ -1,0 +1,29 @@
+{
+  "name": "Datacow Dev",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.23"
+    },
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go"
+      ]
+    }
+  },
+
+  "postCreateCommand": "go version && echo 'Dev container ready'",
+
+  "remoteEnv": {
+    "DATACOW_DEV": "true",
+    "TEST_POSTGRES_DSN": "postgres://datacow:datacow@postgres:5432/datacow_test?sslmode=disable",
+    "TEST_MYSQL_DSN": "datacow:datacow@tcp(mysql:3306)/datacow_test"
+  }
+}
