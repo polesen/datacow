@@ -136,6 +136,18 @@ Priority features:
 
 LLM abstraction layer lives in `/internal/core/ai/`. Not built yet — defer until core data layer is solid.
 
+## Definition of Done
+
+Before considering any task complete, always run these checks and ensure they all pass:
+
+```bash
+go build ./...        # must compile cleanly
+go test ./...         # all tests must pass
+make lint             # zero lint issues
+```
+
+Do not mark a task done or stop working if any of these fail.
+
 ## Conventions
 
 - **No business logic in TUI or API layers.** If you're writing a DB query in a view, move it to core.
