@@ -2,6 +2,10 @@
 
 Read this before doing any work. It contains all architectural decisions made so far.
 
+## Global Preferences
+
+@/etc/claude/CLAUDE.md
+
 ## Local Context
 
 If `CONTEXT.local.md` exists in the repo root, read it. It contains competitive positioning and business model context that is not committed to git.
@@ -135,11 +139,6 @@ Priority features:
 3. Data Q&A — ask questions about visible data
 
 LLM abstraction layer lives in `/internal/core/ai/`. Not built yet — defer until core data layer is solid.
-
-## Git Commit Messages
-
-Explain **why** the change was made, not what changed. The diff shows what changed.
-The message should capture the reasoning, motivation, or decision behind the change.
 
 ## Definition of Done
 

@@ -3,6 +3,7 @@ services:
     image: mcr.microsoft.com/devcontainers/base:ubuntu
     volumes:
       - ..:/workspace:cached
+      - ~/.claude/CLAUDE.md:/etc/claude/CLAUDE.md:ro
     command: sleep infinity
     depends_on:
       postgres:
