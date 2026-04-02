@@ -136,6 +136,11 @@ Priority features:
 
 LLM abstraction layer lives in `/internal/core/ai/`. Not built yet — defer until core data layer is solid.
 
+## Git Commit Messages
+
+Explain **why** the change was made, not what changed. The diff shows what changed.
+The message should capture the reasoning, motivation, or decision behind the change.
+
 ## Definition of Done
 
 Before considering any task complete, always run these checks and ensure they all pass:
