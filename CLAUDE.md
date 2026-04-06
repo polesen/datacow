@@ -8,7 +8,7 @@ Read this before doing any work. It contains all architectural decisions made so
 
 ## Local Context
 
-If `CONTEXT.local.md` exists in the repo root, read it. It contains competitive positioning and business model context that is not committed to git.
+If `CONTEXT.local.md` exists in the repo root, read it. It contains context that is not committed to git.
 
 ## What This Is
 
@@ -162,6 +162,9 @@ Do not mark a task done or stop working if any of these fail.
 
 ## Current Status
 
-Early stage. No Go code exists yet. Tasks are in `TASKS/`.
+@TASKS/README.md
 
-Start with: `TASKS/M1-project-scaffold.md`
+Tasks are in `TASKS/`.
+
+Keep the `TASKS/README.md` file current with the progress you make.
+

@@ -26,7 +26,7 @@ To run Claude on a task with full permissions inside the dev container:
 docker compose -f .devcontainer/docker-compose.yml up -d
 
 # Run Claude on a specific task
-claude --dangerouslySkipPermissions "Read CLAUDE.md, then complete the task described in TASKS/M1-project-scaffold.md. Verify all acceptance criteria are met before finishing."
+claude --dangerouslySkipPermissions "Read CLAUDE.md, then complete the task described in $@. Verify all acceptance criteria are met before finishing."
 ```
 
 ## Updating Task Status
