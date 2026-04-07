@@ -8,7 +8,10 @@
     "ghcr.io/devcontainers/features/go:1": {
       "version": "1.23"
     },
-    "ghcr.io/devcontainers/features/git:1": {}
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    }
   },
 
   "customizations": {
@@ -19,7 +22,7 @@
     }
   },
 
-  "postCreateCommand": "go version && echo 'Dev container ready'",
+  "postCreateCommand": "npm install -g @anthropic-ai/claude-code && go version && claude --version && echo 'Dev container ready'",
 
   "remoteEnv": {
     "DATACOW_DEV": "true",
