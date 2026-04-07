@@ -22,12 +22,16 @@ Read `CLAUDE.md` in the repo root before starting any task.
 To run Claude on a task with full permissions inside the dev container:
 
 ```bash
-# Start dev container
-docker compose -f .devcontainer/docker-compose.yml up -d
+# 1. Start the dev container (from repo root)
+npx @devcontainers/cli up --workspace-folder .
 
-# Run Claude on a specific task
-claude --dangerouslySkipPermissions "Read CLAUDE.md, then complete the task described in $@. Verify all acceptance criteria are met before finishing."
+# 2. Exec Claude inside it
+npx @devcontainers/cli exec --workspace-folder . \
+  claude --dangerouslySkipPermissions \
+  "Read CLAUDE.md, then complete the task described in TASKS/M2-db-core.md. Verify all acceptance criteria are met before finishing."
 ```
+
+Replace `TASKS/M2-db-core.md` with whichever milestone you want to run.
 
 ## Updating Task Status
 
