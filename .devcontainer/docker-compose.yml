@@ -4,7 +4,6 @@ services:
     volumes:
       - ..:/workspace:cached
       - ~/.claude/CLAUDE.md:/etc/claude/CLAUDE.md:ro
-      - ~/.claude/.credentials.json:/root/.claude/.credentials.json:ro
     command: sleep infinity
     depends_on:
       postgres:
