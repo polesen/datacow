@@ -140,14 +140,27 @@ Priority features:
 
 LLM abstraction layer lives in `/internal/core/ai/`. Not built yet — defer until core data layer is solid.
 
+## Go Tooling
+
+The following tools are installed and should be used actively:
+
+| Tool | When to use |
+|---|---|
+| `gopls` | Available as LSP — provides go-to-definition, type info, inline errors. Used automatically. |
+| `staticcheck` | Run after lint for deeper static analysis: `staticcheck ./...` |
+| `dlv` | Debug unexpected behaviour instead of adding print statements: `dlv test ./path/to/pkg` |
+| `gotestsum` | Always use instead of `go test`: `gotestsum --format testdox ./...` |
+| `gofumpt` | Format code after editing: `gofumpt -w .` |
+| `gomodifytags` | Add or edit struct tags: `gomodifytags -file foo.go -struct Foo -add-tags json` |
+
 ## Definition of Done
 
 Before considering any task complete, always run these checks and ensure they all pass:
 
 ```bash
-go build ./...        # must compile cleanly
-go test ./...         # all tests must pass
-make lint             # zero lint issues
+go build ./...                        # must compile cleanly
+gotestsum --format testdox ./...      # all tests must pass
+make lint                             # zero lint issues
 ```
 
 Do not mark a task done or stop working if any of these fail.

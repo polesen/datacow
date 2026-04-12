@@ -7,7 +7,7 @@ build:
 	go build -o $(BINARY) $(CMD)
 
 test:
-	go test ./...
+	gotestsum --format testdox ./...
 
 run:
 	go run $(CMD)
