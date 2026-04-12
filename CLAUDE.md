@@ -178,6 +178,20 @@ The following tools are installed and should be used actively:
 | `pg_isready` | Check Postgres connectivity: `pg_isready -h postgres -U datacow` |
 | `mysqladmin` | Check MySQL connectivity: `mysqladmin ping -h mysql -u datacow -pdatacow` |
 
+## SQL Security
+
+SQL injection is the most critical security concern in this codebase. Apply these rules everywhere, without exception:
+
+- **Always use parameterized queries or prepared statements** — never interpolate user input, column names, table names, filter values, or AI-generated content directly into SQL strings
+- This applies to:
+  - Internal datacow queries (schema introspection, dataset execution, pagination)
+  - User-supplied filters and sort parameters passed to `QueryOptions`
+  - AI-generated SQL queries used as dataset definitions
+  - Any dynamic SQL constructed at runtime
+- Column names and table names cannot be parameterized in SQL — if they must be dynamic, validate them strictly against a whitelist of known schema names before use
+- Prefer `database/sql` parameterized queries (`$1`, `?`) over any form of string building
+- When reviewing or generating code that touches SQL, actively look for injection vectors and flag or fix them before finishing
+
 ## Definition of Done
 
 Before considering any task complete, always run these checks and ensure they all pass:
@@ -187,9 +201,16 @@ go build ./...                        # must compile cleanly
 make wait-for-db                      # ensure Postgres and MySQL are ready
 gotestsum --format testdox ./...      # all tests must pass
 make lint                             # zero lint issues
+staticcheck ./...                     # deeper static analysis
 ```
 
-Do not mark a task done or stop working if any of these fail.
+Then do a **security review** of all code written or modified in the task:
+- Grep for any string concatenation or `fmt.Sprintf` that touches SQL: `grep -n "fmt.Sprintf\|+.*SELECT\|+.*WHERE\|+.*FROM" **/*.go`
+- Confirm every query that accepts external input uses parameterized placeholders (`$1`, `?`)
+- Confirm dynamic table/column names are validated against a schema whitelist before use
+- Flag and fix any injection vector found before marking the task done
+
+Do not mark a task done if any of the above checks fail or any injection vector is found.
 
 ## Conventions
 
