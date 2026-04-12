@@ -33,5 +33,5 @@ npx @devcontainers/cli up --workspace-folder . $REBUILD
 
 echo "Running Claude on $TASK_FILE..."
 npx @devcontainers/cli exec --workspace-folder . \
-  claude --dangerously-skip-permissions \
+  claude -p --dangerously-skip-permissions \
   "Read CLAUDE.md, then complete the task described in $TASK_FILE. Verify all acceptance criteria are met before finishing."
