@@ -20,6 +20,10 @@ type Client interface {
 	// Query executes a SQL SELECT and returns rows as generic maps.
 	Query(ctx context.Context, sql string, args ...any) ([]map[string]any, error)
 
+	// Placeholder returns the SQL parameter placeholder for argument position n (1-based).
+	// PostgreSQL uses $1, $2, … — MySQL uses ? for every position.
+	Placeholder(n int) string
+
 	// Close releases the connection.
 	Close() error
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -137,6 +138,10 @@ func (c *postgresClient) Query(ctx context.Context, query string, args ...any) (
 		result = append(result, row)
 	}
 	return result, rows.Err()
+}
+
+func (c *postgresClient) Placeholder(n int) string {
+	return "$" + strconv.Itoa(n)
 }
 
 func (c *postgresClient) Close() error {

@@ -137,6 +137,10 @@ func (c *mysqlClient) Query(ctx context.Context, query string, args ...any) ([]m
 	return result, rows.Err()
 }
 
+func (c *mysqlClient) Placeholder(_ int) string {
+	return "?"
+}
+
 func (c *mysqlClient) Close() error {
 	return c.db.Close()
 }
