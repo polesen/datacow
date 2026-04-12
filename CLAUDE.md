@@ -140,6 +140,27 @@ Priority features:
 
 LLM abstraction layer lives in `/internal/core/ai/`. Not built yet — defer until core data layer is solid.
 
+## MCP Servers
+
+Two MCP servers are available inside the devcontainer. Use them proactively — don't wait to be asked.
+
+### postgres
+Direct access to the test Postgres database. Use it to:
+- Verify schema state before writing introspection code
+- Check that queries return the expected rows
+- Inspect actual data when a test fails
+- Confirm migrations or table setup worked correctly
+
+Use this whenever you are writing or debugging anything that touches the database.
+
+### context7
+Fetches live, version-accurate documentation for any library. Use it to:
+- Look up current Bubble Tea / Lip Gloss APIs before writing TUI code
+- Check pgx v5 query patterns before writing DB code
+- Verify Cobra flag/completion APIs
+
+Use this whenever you are about to use a third-party library — always prefer current docs over training data.
+
 ## Go Tooling
 
 The following tools are installed and should be used actively:

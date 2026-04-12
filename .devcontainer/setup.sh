@@ -9,7 +9,12 @@ apt-get update -q && apt-get install -y -q \
   postgresql-client \
   default-mysql-client \
   iputils-ping \
-  curl
+  curl \
+  python3-pip
+
+echo "==> Installing uv (Python package runner for MCP servers)..."
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
 
 echo "==> Installing Go tools..."
 go install golang.org/x/tools/gopls@latest
@@ -32,7 +37,25 @@ printf '{
 }' > ~/.claude.json
 
 mkdir -p ~/.claude
-printf '{"skipDangerousModePermissionPrompt": true}' > ~/.claude/settings.json
+cat > ~/.claude/settings.json << 'EOF'
+{
+  "skipDangerousModePermissionPrompt": true,
+  "mcpServers": {
+    "postgres": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-postgres",
+        "--connection-string",
+        "postgres://datacow:datacow@postgres:5432/datacow_test"
+      ]
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  }
+}
+EOF
 
 echo "==> Versions:"
 go version
