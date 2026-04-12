@@ -4,6 +4,10 @@ services:
     volumes:
       - ..:/workspace:cached
       - ~/.claude/CLAUDE.md:/etc/claude/CLAUDE.md:ro
+    env_file:
+      - ../.env.local
+    environment:
+      DISABLE_AUTOUPDATER: "1"
     command: sleep infinity
     depends_on:
       postgres:
