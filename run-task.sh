@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <milestone>" >&2
+usage() {
+  echo "Usage: $0 [--rebuild] <milestone>" >&2
   echo "Example: $0 M2-db-core.md" >&2
+  echo "         $0 --rebuild M2-db-core.md" >&2
+}
+
+REBUILD=""
+
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --rebuild) REBUILD="--rebuild"; shift ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
+  esac
+done
+
+if [ "$#" -ne 1 ]; then
+  usage
   exit 1
 fi
 
@@ -15,7 +29,7 @@ if [ ! -f "$TASK_FILE" ] || [ ! -r "$TASK_FILE" ]; then
 fi
 
 echo "Starting dev container..."
-npx @devcontainers/cli up --workspace-folder .
+npx @devcontainers/cli up --workspace-folder . $REBUILD
 
 echo "Running Claude on $TASK_FILE..."
 npx @devcontainers/cli exec --workspace-folder . \
