@@ -19,5 +19,5 @@ npx @devcontainers/cli up --workspace-folder .
 
 echo "Running Claude on $TASK_FILE..."
 npx @devcontainers/cli exec --workspace-folder . \
-  claude --dangerouslySkipPermissions \
+  claude --dangerously-skip-permissions \
   "Read CLAUDE.md, then complete the task described in $TASK_FILE. Verify all acceptance criteria are met before finishing."

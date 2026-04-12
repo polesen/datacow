@@ -27,7 +27,7 @@ npx @devcontainers/cli up --workspace-folder .
 
 # 2. Exec Claude inside it
 npx @devcontainers/cli exec --workspace-folder . \
-  claude --dangerouslySkipPermissions \
+  claude --dangerously-skip-permissions \
   "Read CLAUDE.md, then complete the task described in TASKS/M2-db-core.md. Verify all acceptance criteria are met before finishing."
 ```
 
