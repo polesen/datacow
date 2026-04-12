@@ -43,6 +43,9 @@ fi
 echo "Starting dev container..."
 npx @devcontainers/cli up --workspace-folder . $REBUILD
 
+echo "Running preflight checks..."
+npx @devcontainers/cli exec --workspace-folder . bash .devcontainer/preflight.sh
+
 echo "Running Claude on $TASK_FILE (branch: $BRANCH)..."
 npx @devcontainers/cli exec --workspace-folder . \
   claude --dangerously-skip-permissions \

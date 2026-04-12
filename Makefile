@@ -1,7 +1,7 @@
 BINARY := datacow
 CMD    := ./cmd
 
-.PHONY: build test run lint clean wait-for-db
+.PHONY: build test run lint clean wait-for-db preflight
 
 build:
 	go build -o $(BINARY) $(CMD)
@@ -14,6 +14,9 @@ run:
 
 lint:
 	golangci-lint run ./...
+
+preflight:
+	bash .devcontainer/preflight.sh
 
 wait-for-db:
 	@echo "Waiting for Postgres..."

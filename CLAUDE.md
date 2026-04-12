@@ -192,6 +192,16 @@ SQL injection is the most critical security concern in this codebase. Apply thes
 - Prefer `database/sql` parameterized queries (`$1`, `?`) over any form of string building
 - When reviewing or generating code that touches SQL, actively look for injection vectors and flag or fix them before finishing
 
+## Before Starting Any Task
+
+Run the preflight check first. If it fails, stop immediately — do not proceed:
+
+```bash
+make preflight
+```
+
+This verifies all required tools and database connections are available. A failed preflight means the devcontainer needs rebuilding, not that the code is broken.
+
 ## TDD
 
 Follow TDD for all new functionality across all layers — core, TUI, and API/web.
