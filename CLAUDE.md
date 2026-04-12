@@ -192,6 +192,23 @@ SQL injection is the most critical security concern in this codebase. Apply thes
 - Prefer `database/sql` parameterized queries (`$1`, `?`) over any form of string building
 - When reviewing or generating code that touches SQL, actively look for injection vectors and flag or fix them before finishing
 
+## TDD
+
+Follow TDD for all new functionality across all layers — core, TUI, and API/web.
+
+The cycle:
+1. **Write the test first** — it should fail (red). A compile error because types don't exist yet is fine; stub out just enough to compile, then confirm the test fails before writing implementation.
+2. **Write the minimum implementation** to make it pass (green).
+3. **Refactor** if needed, keeping tests green.
+
+Never write implementation before a failing test exists.
+
+**Testing by layer:**
+- **`core/`** — table-driven tests with `gotestsum`, real databases via `TEST_POSTGRES_DSN` / `TEST_MYSQL_DSN`
+- **`tui/`** — use `github.com/charmbracelet/x/exp/teatest` for headless TUI rendering tests
+- **`api/`** — use `net/http/httptest` for handler tests against real core logic
+- **`web/`** — API integration tests via HTTP; frontend component tests if complexity warrants it
+
 ## Branching
 
 Each task runs on its own feature branch (`task/M3-dataset-layer` etc.), created by `run-task.sh` before Claude starts. Do not create or switch branches. Commit your work to whatever branch is current when you start.
