@@ -192,6 +192,10 @@ SQL injection is the most critical security concern in this codebase. Apply thes
 - Prefer `database/sql` parameterized queries (`$1`, `?`) over any form of string building
 - When reviewing or generating code that touches SQL, actively look for injection vectors and flag or fix them before finishing
 
+## Branching
+
+Each task runs on its own feature branch (`task/M3-dataset-layer` etc.), created by `run-task.sh` before Claude starts. Do not create or switch branches. Commit your work to whatever branch is current when you start.
+
 ## Definition of Done
 
 Before considering any task complete, always run these checks and ensure they all pass:
