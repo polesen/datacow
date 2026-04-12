@@ -8,7 +8,7 @@ Read `CLAUDE.md` in the repo root before starting any task.
 | Milestone | Task | Depends On | Status |
 |---|---|---|---|
 | M1 | [Project Scaffold](M1-project-scaffold.md) | — | done |
-| M2 | [Database Core Layer](M2-db-core.md) | M1 | todo |
+| M2 | [Database Core Layer](M2-db-core.md) | M1 | done |
 | M3 | [Dataset Layer](M3-dataset-layer.md) | M2 | todo |
 | M4 | [TUI Shell](M4-tui-shell.md) | M1 | todo |
 | M5 | [TUI Table Browser](M5-tui-table-browser.md) ⭐ MVP | M2, M3, M4 | todo |
