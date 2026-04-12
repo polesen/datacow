@@ -22,7 +22,7 @@
     }
   },
 
-  "postCreateCommand": "npm install -g @anthropic-ai/claude-code && printf '{\"hasCompletedOnboarding\":true,\"theme\":\"dark\",\"projects\":{\"/workspace\":{\"hasTrustDialogAccepted\":true,\"hasClaudeMdExternalIncludesApproved\":true}}}' > ~/.claude.json && go version && claude --version && echo 'Dev container ready'",
+  "postCreateCommand": "npm install -g @anthropic-ai/claude-code && printf '{\"hasCompletedOnboarding\":true,\"theme\":\"dark\",\"projects\":{\"/workspace\":{\"hasTrustDialogAccepted\":true,\"hasClaudeMdExternalIncludesApproved\":true}}}' > ~/.claude.json && mkdir -p ~/.claude && printf '{\"skipDangerousModePermissionPrompt\":true}' > ~/.claude/settings.json && go version && claude --version && echo 'Dev container ready'",
 
   "remoteEnv": {
     "DATACOW_DEV": "true",
