@@ -37,6 +37,10 @@ check "npx"            "command -v npx"
 
 echo ""
 echo "==> Databases"
+echo "  Waiting for Postgres..."
+until pg_isready -h postgres -U datacow -q 2>/dev/null; do sleep 1; done
+echo "  Waiting for MySQL..."
+until mysqladmin ping -h mysql -u datacow -pdatacow --silent 2>/dev/null; do sleep 1; done
 check "postgres reachable" "pg_isready -h postgres -U datacow -q"
 check "mysql reachable"    "mysqladmin ping -h mysql -u datacow -pdatacow --silent"
 
