@@ -21,3 +21,6 @@ coverage.out
 
 # Local-only context (competitive positioning, business model)
 CONTEXT.local.md
+
+.env.local
+
