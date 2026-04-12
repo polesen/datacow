@@ -20,7 +20,7 @@ func mysqlClient(t *testing.T) db.Client {
 	}
 	if err := client.Ping(context.Background()); err != nil {
 		_ = client.Close()
-		t.Skipf("mysql not reachable: %v", err)
+		t.Fatalf("mysql not reachable: %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	return client

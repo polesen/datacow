@@ -20,7 +20,7 @@ func postgresClient(t *testing.T) db.Client {
 	}
 	if err := client.Ping(context.Background()); err != nil {
 		_ = client.Close()
-		t.Skipf("postgres not reachable: %v", err)
+		t.Fatalf("postgres not reachable: %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	return client
