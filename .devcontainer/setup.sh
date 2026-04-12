@@ -5,7 +5,7 @@ echo "==> Installing Claude Code..."
 npm install -g @anthropic-ai/claude-code
 
 echo "==> Installing system packages..."
-apt-get update -q && apt-get install -y -q \
+sudo apt-get update -q && sudo apt-get install -y -q \
   postgresql-client \
   default-mysql-client \
   iputils-ping \
