@@ -4,6 +4,13 @@ set -euo pipefail
 echo "==> Installing Claude Code..."
 npm install -g @anthropic-ai/claude-code
 
+echo "==> Installing system packages..."
+apt-get update -q && apt-get install -y -q \
+  postgresql-client \
+  default-mysql-client \
+  iputils-ping \
+  curl
+
 echo "==> Installing Go tools..."
 go install golang.org/x/tools/gopls@latest
 go install honnef.co/go/tools/cmd/staticcheck@latest

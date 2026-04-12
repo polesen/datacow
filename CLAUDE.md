@@ -152,6 +152,10 @@ The following tools are installed and should be used actively:
 | `gotestsum` | Always use instead of `go test`: `gotestsum --format testdox ./...` |
 | `gofumpt` | Format code after editing: `gofumpt -w .` |
 | `gomodifytags` | Add or edit struct tags: `gomodifytags -file foo.go -struct Foo -add-tags json` |
+| `psql` | Connect to Postgres directly: `psql $TEST_POSTGRES_DSN` |
+| `mysql` | Connect to MySQL directly: `mysql -h mysql -u datacow -pdatacow datacow_test` |
+| `pg_isready` | Check Postgres connectivity: `pg_isready -h postgres -U datacow` |
+| `mysqladmin` | Check MySQL connectivity: `mysqladmin ping -h mysql -u datacow -pdatacow` |
 
 ## Definition of Done
 
@@ -159,6 +163,7 @@ Before considering any task complete, always run these checks and ensure they al
 
 ```bash
 go build ./...                        # must compile cleanly
+make wait-for-db                      # ensure Postgres and MySQL are ready
 gotestsum --format testdox ./...      # all tests must pass
 make lint                             # zero lint issues
 ```
