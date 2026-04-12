@@ -11,7 +11,7 @@ REBUILD=""
 
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
-    --rebuild) REBUILD="--rebuild"; shift ;;
+    --rebuild) REBUILD="--remove-existing-container"; shift ;;
     *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
   esac
 done
