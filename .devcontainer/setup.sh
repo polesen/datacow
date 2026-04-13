@@ -24,6 +24,14 @@ go install gotest.tools/gotestsum@latest
 go install mvdan.cc/gofumpt@latest
 go install github.com/fatih/gomodifytags@latest
 
+echo "==> Configuring git identity..."
+if [ -n "${GIT_AUTHOR_NAME:-}" ] && [ -n "${GIT_AUTHOR_EMAIL:-}" ]; then
+  git config --global user.name "$GIT_AUTHOR_NAME"
+  git config --global user.email "$GIT_AUTHOR_EMAIL"
+else
+  echo "  WARNING: GIT_AUTHOR_NAME or GIT_AUTHOR_EMAIL not set in .env.local — commits will have no author"
+fi
+
 echo "==> Configuring Claude..."
 printf '{
   "hasCompletedOnboarding": true,
