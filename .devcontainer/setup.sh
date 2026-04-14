@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "==> Installing Claude Code..."
-curl -fsSL https://claude.ai/install.sh | bash
-export PATH="$HOME/.local/bin:$PATH"
-
 echo "==> Installing system packages..."
 sudo apt-get update -q && sudo apt-get install -y -q \
   postgresql-client \
@@ -13,8 +9,14 @@ sudo apt-get update -q && sudo apt-get install -y -q \
   curl \
   python3-pip
 
+echo "==> Installing Claude Code..."
+curl -fsSL https://claude.ai/install.sh | bash
+
 echo "==> Installing uv (Python package runner for MCP servers)..."
 curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Persist ~/.local/bin in PATH for all future shell sessions in the container
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 export PATH="$HOME/.local/bin:$PATH"
 
 echo "==> Installing Go tools..."
@@ -73,5 +75,6 @@ staticcheck --version
 dlv version
 gotestsum --version
 claude --version
+uvx --version
 
 echo "==> Dev container ready"
