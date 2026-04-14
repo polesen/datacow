@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+
+	"github.com/beetio/datacow/internal/tui"
 )
 
 var version = "0.1.0-dev"
@@ -15,6 +18,7 @@ func main() {
 		Short:        "Like k9s or lazygit, but for databases.",
 		Version:      version,
 		SilenceUsage: true,
+		RunE:         runTUI,
 	}
 
 	root.PersistentFlags().String("connection-string", "", "Database connection string (e.g. postgres://user:pass@host/db)")
@@ -31,12 +35,23 @@ func main() {
 
 	root.AddCommand(serve)
 
-	root.RunE = func(cmd *cobra.Command, args []string) error {
-		fmt.Println("tui: not yet implemented")
-		return nil
-	}
-
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func runTUI(cmd *cobra.Command, args []string) error {
+	connStr, _ := cmd.Flags().GetString("connection-string")
+
+	cfg := tui.Config{
+		ConnectionString: connStr,
+		Version:          version,
+	}
+
+	// client is nil for now; M5 will open a real connection.
+	app := tui.New(cfg, nil)
+
+	p := tea.NewProgram(app, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }
