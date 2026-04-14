@@ -6,8 +6,7 @@ sudo apt-get update -q && sudo apt-get install -y -q \
   postgresql-client \
   default-mysql-client \
   iputils-ping \
-  curl \
-  python3-pip
+  curl
 
 echo "==> Installing Claude Code..."
 curl -fsSL https://claude.ai/install.sh | bash
