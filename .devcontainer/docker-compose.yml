@@ -4,6 +4,8 @@ services:
     volumes:
       - ..:/workspace:cached
       - ~/.claude/CLAUDE.md:/etc/claude/CLAUDE.md:ro
+      - go-mod-cache:/home/vscode/go/pkg/mod
+      - go-build-cache:/home/vscode/.cache/go-build
     env_file:
       - ../.env.local
     environment:
@@ -39,3 +41,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+volumes:
+  go-mod-cache:
+  go-build-cache:
