@@ -21,15 +21,21 @@ if [ "$#" -ne 1 ]; then
   exit 1
 fi
 
-TASK_FILE="TASKS/$1"
+# Accept either a full path or just a filename — normalise to a path under TASKS/
+INPUT="$1"
+if [[ "$INPUT" == TASKS/* || "$INPUT" == /* ]]; then
+  TASK_FILE="$INPUT"
+else
+  TASK_FILE="TASKS/$INPUT"
+fi
 
 if [ ! -f "$TASK_FILE" ] || [ ! -r "$TASK_FILE" ]; then
   echo "Error: '$TASK_FILE' is not a readable file" >&2
   exit 1
 fi
 
-# Derive branch name from task filename, e.g. M3-dataset-layer.md -> task/M3-dataset-layer
-BRANCH="task/$(basename "$1" .md)"
+# Derive branch name from the bare filename, regardless of how the path was given
+BRANCH="task/$(basename "$TASK_FILE" .md)"
 
 # Create and switch to feature branch
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
