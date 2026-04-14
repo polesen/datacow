@@ -2,7 +2,8 @@
 set -euo pipefail
 
 echo "==> Installing Claude Code..."
-npm install -g @anthropic-ai/claude-code
+curl -fsSL https://claude.ai/install.sh | bash
+export PATH="$HOME/.local/bin:$PATH"
 
 echo "==> Installing system packages..."
 sudo apt-get update -q && sudo apt-get install -y -q \
