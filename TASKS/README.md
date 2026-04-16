@@ -11,7 +11,7 @@ Read `CLAUDE.md` in the repo root before starting any task.
 | M2 | [Database Core Layer](M2-db-core.md) | M1 | done |
 | M3 | [Dataset Layer](M3-dataset-layer.md) | M2 | done |
 | M4 | [TUI Shell](M4-tui-shell.md) | M1 | done |
-| M5 | [TUI Table Browser](M5-tui-table-browser.md) ⭐ MVP | M2, M3, M4 | todo |
+| M5 | [TUI Table Browser](M5-tui-table-browser.md) ⭐ MVP | M2, M3, M4 | done |
 | M6 | [Filter, Sort, Export](M6-filter-sort-export.md) | M5 | todo |
 | M7 | [FK Drill-Down](M7-fk-drilldown.md) | M5 | todo |
 | M8 | [HTTP API Server](M8-http-api.md) | M3 | todo |

@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/beetio/datacow/internal/core/db"
 	"github.com/beetio/datacow/internal/tui"
 )
 
@@ -48,8 +49,19 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		Version:          version,
 	}
 
-	// client is nil for now; M5 will open a real connection.
-	app := tui.New(cfg, nil)
+	var client db.Client
+	var connErr error
+
+	if connStr == "" {
+		connErr = fmt.Errorf("no --connection-string provided")
+	} else {
+		client, connErr = db.Connect(connStr)
+		if client != nil {
+			defer func() { _ = client.Close() }()
+		}
+	}
+
+	app := tui.New(cfg, client, connErr)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	_, err := p.Run()

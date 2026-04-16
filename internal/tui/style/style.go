@@ -47,3 +47,23 @@ var StatusDesc = lipgloss.NewStyle().
 // Separator is a thin divider between header / content / status.
 var Separator = lipgloss.NewStyle().
 	Foreground(colorBorder)
+
+// RowSelected is the highlighted row in a list.
+var RowSelected = lipgloss.NewStyle().
+	Background(colorPrimary).
+	Foreground(colorBg).
+	Bold(true)
+
+// RowNormal is an unselected list row.
+var RowNormal = lipgloss.NewStyle().
+	Foreground(colorText)
+
+// ColHeader styles column name cells in the row browser header.
+var ColHeader = lipgloss.NewStyle().
+	Foreground(colorPrimary).
+	Bold(true)
+
+// NullValue styles NULL cell values.
+var NullValue = lipgloss.NewStyle().
+	Foreground(colorMuted).
+	Italic(true)

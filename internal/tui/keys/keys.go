@@ -5,15 +5,17 @@ import "github.com/charmbracelet/bubbles/key"
 // Map holds every keybinding used by the TUI. All key handling must go
 // through this map — never hardcode key checks in view or model code.
 type Map struct {
-	Quit   key.Binding
-	Help   key.Binding
-	Filter key.Binding
-	Up     key.Binding
-	Down   key.Binding
-	Left   key.Binding
-	Right  key.Binding
-	Enter  key.Binding
-	Back   key.Binding
+	Quit     key.Binding
+	Help     key.Binding
+	Filter   key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	Left     key.Binding
+	Right    key.Binding
+	Enter    key.Binding
+	Back     key.Binding
+	NextPage key.Binding
+	PrevPage key.Binding
 }
 
 // Default returns the default keybindings.
@@ -54,6 +56,14 @@ func Default() Map {
 		Back: key.NewBinding(
 			key.WithKeys("esc", "backspace"),
 			key.WithHelp("esc", "back"),
+		),
+		NextPage: key.NewBinding(
+			key.WithKeys("]", "pgdown"),
+			key.WithHelp("]", "next page"),
+		),
+		PrevPage: key.NewBinding(
+			key.WithKeys("[", "pgup"),
+			key.WithHelp("[", "prev page"),
 		),
 	}
 }
