@@ -9,6 +9,7 @@ sudo apt-get update -q && sudo apt-get install -y -q \
   curl
 
 echo "==> Installing Claude Code..."
+sudo mkdir -p ~/.cache && sudo chown -R "$USER:$USER" ~/.cache
 curl -fsSL https://claude.ai/install.sh | bash
 
 echo "==> Installing uv (Python package runner for MCP servers)..."
