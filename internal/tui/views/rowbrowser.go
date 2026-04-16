@@ -573,7 +573,12 @@ func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.So
 		} else {
 			cell = runewidth.FillRight(runewidth.Truncate(name, w, "…"), w)
 		}
-		parts[j] = style.ColHeader.Render(cell)
+		// The first visible column (j==0) is the sort target; highlight it.
+		if j == 0 {
+			parts[j] = style.ColHeaderActive.Render(cell)
+		} else {
+			parts[j] = style.ColHeader.Render(cell)
+		}
 	}
 	return strings.Join(parts, "  ")
 }

@@ -94,9 +94,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.screen == screenTableList && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 			if ds := a.tableList.SelectedDataset(); ds != nil {
 				a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds)
-				// Pre-size the row browser with current dimensions
+				// Pre-size the row browser with current dimensions (width-1 for left indent).
 				h := a.contentHeight()
-				a.rowBrowser, _ = a.rowBrowser.Update(tea.WindowSizeMsg{Width: a.width, Height: h})
+				a.rowBrowser, _ = a.rowBrowser.Update(tea.WindowSizeMsg{Width: a.width - 1, Height: h})
 				a.screen = screenRowBrowser
 				return a, a.rowBrowser.Init()
 			}
@@ -112,7 +112,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		h := a.contentHeight()
-		inner := tea.WindowSizeMsg{Width: msg.Width, Height: h}
+		// Subtract 1 from width so sub-views leave room for the left-side indent.
+		inner := tea.WindowSizeMsg{Width: msg.Width - 1, Height: h}
 		switch a.screen {
 		case screenTableList:
 			a.tableList, _ = a.tableList.Update(inner)
@@ -143,12 +144,12 @@ func (a *App) View() string {
 	statusBar := a.renderStatusBar()
 	content := a.renderContent()
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, content, statusBar)
+	return lipgloss.JoinVertical(lipgloss.Left, header, "", content, statusBar)
 }
 
 func (a *App) contentHeight() int {
-	// Header (1) + status bar (1) = 2 fixed lines.
-	h := a.height - 2
+	// Header (1) + blank spacer (1) + status bar (1) = 3 fixed lines.
+	h := a.height - 3
 	if h < 0 {
 		h = 0
 	}
@@ -170,12 +171,13 @@ func (a *App) renderHeader() string {
 
 func (a *App) renderContent() string {
 	h := a.contentHeight()
+	leftPad := lipgloss.NewStyle().PaddingLeft(1)
 
 	switch a.screen {
 	case screenTableList:
-		return a.tableList.View()
+		return leftPad.Render(a.tableList.View())
 	case screenRowBrowser:
-		return a.rowBrowser.View()
+		return leftPad.Render(a.rowBrowser.View())
 	case screenError:
 		var msg string
 		if a.initErr != nil {
@@ -192,13 +194,15 @@ func (a *App) renderStatusBar() string {
 	if a.screen == screenRowBrowser && !a.rowBrowser.IsLoading() && a.rowBrowser.Err() == nil {
 		return a.renderRowBrowserStatusBar()
 	}
-	bindings := a.keys.ShortHelp()
-	parts := make([]string, 0, len(bindings)*2)
+	var bindings []key.Binding
+	if a.screen == screenTableList {
+		bindings = a.keys.TableListHelp()
+	} else {
+		bindings = a.keys.ShortHelp()
+	}
+	parts := make([]string, 0, len(bindings))
 	for _, b := range bindings {
-		parts = append(parts,
-			style.StatusKey.Render(b.Help().Key),
-			style.StatusDesc.Render(" "+b.Help().Desc),
-		)
+		parts = append(parts, style.StatusKey.Render(b.Help().Key)+style.StatusDesc.Render(" "+b.Help().Desc))
 	}
 	return style.StatusBar.Width(a.width).Render(strings.Join(parts, "  "))
 }
@@ -209,9 +213,12 @@ func (a *App) renderRowBrowserStatusBar() string {
 	keyParts := []string{
 		style.StatusKey.Render("q") + style.StatusDesc.Render(" quit"),
 		style.StatusKey.Render("esc") + style.StatusDesc.Render(" back"),
-		style.StatusKey.Render("]") + style.StatusDesc.Render(" next"),
 		style.StatusKey.Render("[") + style.StatusDesc.Render(" prev"),
-		style.StatusKey.Render("←→") + style.StatusDesc.Render(" scroll"),
+		style.StatusKey.Render("]") + style.StatusDesc.Render(" next"),
+		style.StatusKey.Render("←→") + style.StatusDesc.Render(" col"),
+		style.StatusKey.Render("/") + style.StatusDesc.Render(" filter"),
+		style.StatusKey.Render("s") + style.StatusDesc.Render(" sort"),
+		style.StatusKey.Render("e") + style.StatusDesc.Render(" export"),
 	}
 	right := strings.Join(keyParts, "  ")
 

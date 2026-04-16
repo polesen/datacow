@@ -23,7 +23,7 @@ var HeaderTitle = headerBase.Bold(true).Foreground(colorBg)
 var HeaderMeta = headerBase.Foreground(colorBg)
 
 // HeaderFill is the background fill between the title and meta segments.
-var HeaderFill = headerBase
+var HeaderFill = lipgloss.NewStyle().Background(colorPrimary)
 
 // Content is the main area that panels live inside.
 var Content = lipgloss.NewStyle().
@@ -62,6 +62,12 @@ var RowNormal = lipgloss.NewStyle().
 var ColHeader = lipgloss.NewStyle().
 	Foreground(colorPrimary).
 	Bold(true)
+
+// ColHeaderActive styles the first visible column (the sort target) to make it visually distinct.
+var ColHeaderActive = lipgloss.NewStyle().
+	Foreground(colorPrimary).
+	Bold(true).
+	Underline(true)
 
 // NullValue styles NULL cell values.
 var NullValue = lipgloss.NewStyle().

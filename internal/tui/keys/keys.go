@@ -93,6 +93,11 @@ func (m Map) ShortHelp() []key.Binding {
 	return []key.Binding{m.Quit, m.Help, m.Filter, m.Sort, m.Export}
 }
 
+// TableListHelp returns bindings that are active in the table list view.
+func (m Map) TableListHelp() []key.Binding {
+	return []key.Binding{m.Quit, m.Up, m.Down, m.Enter}
+}
+
 // FullHelp returns all bindings grouped for a full help overlay.
 func (m Map) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
