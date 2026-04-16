@@ -10,7 +10,7 @@ test:
 	gotestsum --format testdox ./...
 
 run:
-	go run $(CMD)
+	go run $(CMD) $(ARGS)
 
 lint:
 	golangci-lint run ./...
