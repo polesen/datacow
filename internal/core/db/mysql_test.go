@@ -63,8 +63,8 @@ func TestMySQL_SchemaIntrospection(t *testing.T) {
 		t.Fatalf("create dc_orders: %v", err)
 	}
 	t.Cleanup(func() {
-		queryExec(ctx, client, "DROP TABLE IF EXISTS dc_orders")       //nolint:errcheck
-		queryExec(ctx, client, "DROP TABLE IF EXISTS dc_customers")    //nolint:errcheck
+		queryExec(ctx, client, "DROP TABLE IF EXISTS dc_orders")    //nolint:errcheck
+		queryExec(ctx, client, "DROP TABLE IF EXISTS dc_customers") //nolint:errcheck
 	})
 
 	t.Run("ListTables", func(t *testing.T) {

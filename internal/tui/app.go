@@ -11,6 +11,7 @@ import (
 
 	"github.com/beetio/datacow/internal/core/dataset"
 	"github.com/beetio/datacow/internal/core/db"
+	"github.com/beetio/datacow/internal/core/export"
 	"github.com/beetio/datacow/internal/tui/keys"
 	"github.com/beetio/datacow/internal/tui/style"
 	"github.com/beetio/datacow/internal/tui/views"
@@ -44,6 +45,7 @@ type App struct {
 	tableList  views.TableListModel
 	rowBrowser views.RowBrowserModel
 	executor   *dataset.Executor
+	exporter   *export.Exporter
 	initErr    error
 }
 
@@ -61,6 +63,7 @@ func New(cfg Config, client db.Client, connErr error) *App {
 		resolver := dataset.NewResolver(client)
 		executor := dataset.NewExecutor(client)
 		a.executor = executor
+		a.exporter = export.NewExporter(executor)
 		a.tableList = views.NewTableListModel(a.keys, resolver, executor)
 		a.screen = screenTableList
 	} else {
@@ -90,7 +93,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Open selected table
 		if a.screen == screenTableList && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 			if ds := a.tableList.SelectedDataset(); ds != nil {
-				a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, *ds)
+				a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds)
 				// Pre-size the row browser with current dimensions
 				h := a.contentHeight()
 				a.rowBrowser, _ = a.rowBrowser.Update(tea.WindowSizeMsg{Width: a.width, Height: h})
@@ -99,8 +102,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
-		// Go back to table list
-		if a.screen == screenRowBrowser && key.Matches(msg, a.keys.Back) {
+		// Go back to table list (only when row browser isn't consuming the Back key)
+		if a.screen == screenRowBrowser && key.Matches(msg, a.keys.Back) && !a.rowBrowser.NeedsBackKey() {
 			a.screen = screenTableList
 			return a, nil
 		}

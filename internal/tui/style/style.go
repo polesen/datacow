@@ -70,3 +70,26 @@ var NullValue = lipgloss.NewStyle().
 
 // Error styles inline error messages.
 var Error = lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E"))
+
+var FilterPill = lipgloss.NewStyle().
+	Foreground(colorBg).
+	Background(colorKey).
+	Padding(0, 1)
+
+var FilterPillSelected = lipgloss.NewStyle().
+	Foreground(colorBg).
+	Background(colorPrimary).
+	Bold(true).
+	Padding(0, 1)
+
+var FilterBar = lipgloss.NewStyle().
+	Foreground(colorText).
+	Background(colorBorder).
+	Padding(0, 1)
+
+var ExportBar = lipgloss.NewStyle().
+	Foreground(colorText).
+	Background(colorBorder).
+	Padding(0, 1)
+
+var Progress = lipgloss.NewStyle().Foreground(colorPrimary)

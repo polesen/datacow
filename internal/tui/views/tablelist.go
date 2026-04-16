@@ -167,10 +167,10 @@ func (m TableListModel) SelectedDataset() *dataset.Dataset {
 	return &ds
 }
 
-func (m TableListModel) IsLoading() bool    { return m.loading }
-func (m TableListModel) DatasetCount() int  { return len(m.datasets) }
-func (m TableListModel) Cursor() int        { return m.cursor }
-func (m TableListModel) Err() error         { return m.err }
+func (m TableListModel) IsLoading() bool   { return m.loading }
+func (m TableListModel) DatasetCount() int { return len(m.datasets) }
+func (m TableListModel) Cursor() int       { return m.cursor }
+func (m TableListModel) Err() error        { return m.err }
 
 func (m TableListModel) View() string {
 	if m.width == 0 {

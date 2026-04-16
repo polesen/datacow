@@ -39,7 +39,7 @@ func TestLoad_Postgres(t *testing.T) {
 		}
 	}
 	defer func() {
-		client.Query(ctx, "DROP TABLE IF EXISTS sc_items")       //nolint:errcheck
+		client.Query(ctx, "DROP TABLE IF EXISTS sc_items")      //nolint:errcheck
 		client.Query(ctx, "DROP TABLE IF EXISTS sc_categories") //nolint:errcheck
 	}()
 

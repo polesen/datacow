@@ -24,7 +24,7 @@ func makeResult(page, totalPages int, totalRows int64, cols []db.Column, rows []
 
 func TestRowBrowserModel_StartsLoading(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, ds)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 	if !m.IsLoading() {
 		t.Error("expected loading state initially")
 	}
@@ -32,7 +32,7 @@ func TestRowBrowserModel_StartsLoading(t *testing.T) {
 
 func TestRowBrowserModel_RowsLoaded(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, ds)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 
 	result := makeResult(1, 3, 150,
 		[]db.Column{{Name: "id"}, {Name: "name"}},
@@ -59,7 +59,7 @@ func TestRowBrowserModel_RowsLoaded(t *testing.T) {
 
 func TestRowBrowserModel_NextPage(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, ds)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 
 	result := makeResult(1, 3, 150,
@@ -87,7 +87,7 @@ func TestRowBrowserModel_NextPage(t *testing.T) {
 
 func TestRowBrowserModel_PrevPage(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, ds)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 
 	result := makeResult(2, 3, 150,
 		[]db.Column{{Name: "id"}},
@@ -104,7 +104,7 @@ func TestRowBrowserModel_PrevPage(t *testing.T) {
 
 func TestRowBrowserModel_NextPageAtLastPage(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, ds)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 
 	result := makeResult(3, 3, 150, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
@@ -118,7 +118,7 @@ func TestRowBrowserModel_NextPageAtLastPage(t *testing.T) {
 
 func TestRowBrowserModel_PrevPageAtFirstPage(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, ds)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 
 	result := makeResult(1, 3, 150, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
@@ -132,7 +132,7 @@ func TestRowBrowserModel_PrevPageAtFirstPage(t *testing.T) {
 
 func TestRowBrowserModel_HorizontalScroll(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, ds)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 
 	result := makeResult(1, 1, 2,
 		[]db.Column{{Name: "id"}, {Name: "name"}, {Name: "email"}},
@@ -165,7 +165,7 @@ func TestRowBrowserModel_HorizontalScroll(t *testing.T) {
 
 func TestRowBrowserModel_StatusLine(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, ds)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 
 	result := makeResult(2, 5, 230,
 		[]db.Column{{Name: "id"}},
@@ -183,7 +183,7 @@ func TestRowBrowserModel_StatusLine(t *testing.T) {
 
 func TestRowBrowserModel_View(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, ds)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 
 	result := makeResult(1, 1, 2,
@@ -212,5 +212,212 @@ func TestRowBrowserModel_View(t *testing.T) {
 	// NULL value should appear
 	if !strings.Contains(v, "null") {
 		t.Error("view missing null indicator")
+	}
+}
+
+// --- Filter tests ---
+
+func TestRowBrowserModel_FilterInput_Open(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Press /
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !m.FilterInputActive() {
+		t.Error("expected filter input to be active after /")
+	}
+}
+
+func TestRowBrowserModel_FilterInput_Cancel(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.FilterInputActive() {
+		t.Error("expected filter input to be closed after esc")
+	}
+}
+
+func TestRowBrowserModel_FilterInput_AddFilter(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	// Type "id=1"
+	for _, r := range "id=1" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.FilterInputActive() {
+		t.Error("expected filter input closed after enter")
+	}
+	if len(m.Filters()) != 1 {
+		t.Fatalf("expected 1 filter, got %d", len(m.Filters()))
+	}
+	f := m.Filters()[0]
+	if f.Column != "id" || f.Operator != "=" || f.Value != "1" {
+		t.Errorf("unexpected filter: %+v", f)
+	}
+}
+
+func TestRowBrowserModel_FilterInput_InvalidFilter(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "noop" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Should stay in filter input mode (or close with an error — either is fine)
+	// Main assertion: no filter was added
+	if len(m.Filters()) != 0 {
+		t.Errorf("expected no filters after invalid input, got %d", len(m.Filters()))
+	}
+}
+
+func TestRowBrowserModel_FilterPills_Remove(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}, {Name: "name"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Add a filter by simulating state
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "id=1" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(m.Filters()) != 1 {
+		t.Fatalf("setup: expected 1 filter, got %d", len(m.Filters()))
+	}
+
+	// Enter filter pill mode (Tab)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if !m.FilterPillsActive() {
+		t.Error("expected filter pill mode active after tab")
+	}
+
+	// Press x to remove the selected pill
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if len(m.Filters()) != 0 {
+		t.Errorf("expected 0 filters after removing, got %d", len(m.Filters()))
+	}
+}
+
+// --- Sort tests ---
+
+func TestRowBrowserModel_Sort_Cycle(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 2,
+		[]db.Column{{Name: "id"}, {Name: "name"}},
+		[]map[string]any{{"id": int64(1), "name": "Alice"}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// colOffset=0 → sort on "id"
+	// First s: ASC
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	s := m.ActiveSort()
+	if s == nil || s.Column != "id" || s.Desc {
+		t.Errorf("expected sort id ASC, got %v", s)
+	}
+
+	// Second s: DESC
+	m, _ = m.Update(views.RowsLoadedMsg(result)) // loaded first to unblock
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	s = m.ActiveSort()
+	if s == nil || s.Column != "id" || !s.Desc {
+		t.Errorf("expected sort id DESC, got %v", s)
+	}
+
+	// Third s: clear sort
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	s = m.ActiveSort()
+	if s != nil {
+		t.Errorf("expected no sort, got %v", s)
+	}
+}
+
+func TestRowBrowserModel_Sort_ViewIndicator(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}},
+		[]map[string]any{{"id": int64(1)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	v := m.View()
+	if !strings.Contains(v, "↑") {
+		t.Error("expected ↑ indicator in view after sort ASC")
+	}
+}
+
+func TestRowBrowserModel_Sort_StatusLine(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "price"}},
+		[]map[string]any{{"price": 9.99}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+
+	sl := m.StatusLine()
+	if !strings.Contains(sl, "price") {
+		t.Errorf("StatusLine %q missing sort column name", sl)
+	}
+}
+
+// --- Export menu test ---
+
+func TestRowBrowserModel_ExportMenu_Open(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if !m.ExportMenuActive() {
+		t.Error("expected export menu active after 'e'")
+	}
+
+	// Esc closes it
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ExportMenuActive() {
+		t.Error("expected export menu closed after esc")
+	}
+}
+
+func TestRowBrowserModel_NeedsBackKey(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	if m.NeedsBackKey() {
+		t.Error("NeedsBackKey should be false in normal mode")
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !m.NeedsBackKey() {
+		t.Error("NeedsBackKey should be true in filter input mode")
 	}
 }
