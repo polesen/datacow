@@ -111,9 +111,21 @@ var FKColHeaderActive = lipgloss.NewStyle().
 	Bold(true).
 	Underline(true)
 
-// FKCell styles the active FK cell (cursor row + FK column) to show it can be drilled into.
+// RowHighlight is a subtle background applied to all non-cursor cells in the selected row.
+var RowHighlight = lipgloss.NewStyle().
+	Background(colorBorder).
+	Foreground(colorText)
+
+// CursorCell is the exact cursor position (selected row + selected column).
+var CursorCell = lipgloss.NewStyle().
+	Background(colorPrimary).
+	Foreground(colorBg).
+	Bold(true)
+
+// FKCell styles the FK cursor cell (cursor row + FK column) — drillable.
 var FKCell = lipgloss.NewStyle().
-	Foreground(colorKey).
+	Background(colorKey).
+	Foreground(colorBg).
 	Bold(true)
 
 // DrillSep styles the separator line between drill-down levels.

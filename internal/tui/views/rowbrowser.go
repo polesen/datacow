@@ -117,6 +117,7 @@ func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export
 		executor:    executor,
 		exporter:    exporter,
 		filterInput: ti,
+		drillStack:  make([]savedLevel, 0, 4),
 	}
 }
 
@@ -165,6 +166,14 @@ func (m RowBrowserModel) loadFKsCmd() tea.Cmd {
 	}
 }
 
+func (m RowBrowserModel) applyLoadedResult(r *dataset.QueryResult) RowBrowserModel {
+	m.result = r
+	m.loading = false
+	m.rowCursor = 0
+	m.colWidths = computeColWidths(r.Columns, r.Rows)
+	return m
+}
+
 func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -181,31 +190,21 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		return m, cmd
 
 	case RowsLoadedMsg:
-		// Direct injection (tests / external callers) — always applies.
-		m.result = (*dataset.QueryResult)(msg)
-		m.loading = false
-		m.rowCursor = 0
-		m.colWidths = computeColWidths(m.result.Columns, m.result.Rows)
-		return m, nil
+		return m.applyLoadedResult((*dataset.QueryResult)(msg)), nil
 
 	case rowsLoadedInternal:
 		if msg.seq != m.drillSeq {
-			return m, nil // stale result from a superseded load — discard
+			return m, nil
 		}
-		m.result = msg.result
-		m.loading = false
-		m.rowCursor = 0
-		m.colWidths = computeColWidths(m.result.Columns, m.result.Rows)
-		return m, nil
+		return m.applyLoadedResult(msg.result), nil
 
 	case FKsLoadedMsg:
-		// Direct injection (tests / external callers) — always applies.
 		m.fks = []db.ForeignKey(msg)
 		return m, nil
 
 	case fksLoadedInternal:
 		if msg.seq != m.drillSeq {
-			return m, nil // stale — discard
+			return m, nil
 		}
 		m.fks = msg.fks
 		return m, nil
@@ -595,9 +594,13 @@ func (m RowBrowserModel) NeedsBackKey() bool {
 	return m.mode != modeNormal || len(m.drillStack) > 0
 }
 
+func (m RowBrowserModel) exportProgressText() string {
+	return fmt.Sprintf("Exporting... %s rows written", formatCount(int64(m.exportProgress)))
+}
+
 func (m RowBrowserModel) StatusLine() string {
 	if m.mode == modeExporting {
-		return fmt.Sprintf("Exporting... %s rows written", formatCount(int64(m.exportProgress)))
+		return m.exportProgressText()
 	}
 	if m.statusMsg != "" {
 		return m.statusMsg
@@ -674,13 +677,9 @@ func (m RowBrowserModel) View() string {
 		return style.Content.Width(m.width).Height(m.height).Render(strings.Join(sections, "\n"))
 	}
 
-	// Filter pills row
-	if len(m.filters) > 0 {
-		sections = append(sections, m.renderFilterPills())
-	}
-
 	filterPillLines := 0
 	if len(m.filters) > 0 {
+		sections = append(sections, m.renderFilterPills())
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
@@ -710,7 +709,7 @@ func (m RowBrowserModel) View() string {
 		sections = append(sections, bar)
 	case modeExporting:
 		bar := style.ExportBar.Width(m.width).Render(
-			style.Progress.Render(fmt.Sprintf("Exporting... %s rows written", formatCount(int64(m.exportProgress)))),
+			style.Progress.Render(m.exportProgressText()),
 		)
 		sections = append(sections, bar)
 	}
@@ -739,7 +738,6 @@ func (m RowBrowserModel) renderSavedLevel(level savedLevel) string {
 		return ""
 	}
 
-	// Section header showing the table name and total row count.
 	sectionTitle := style.DrillSep.Render(
 		fmt.Sprintf("─ %s (%s rows) ", level.ds.Name, formatCount(level.result.TotalRows)),
 	)
@@ -751,7 +749,8 @@ func (m RowBrowserModel) renderSavedLevel(level savedLevel) string {
 		visible = []int{level.colOffset}
 	}
 
-	header := buildHeader(cols, level.colWidths, visible, level.sort, level.colCursor, level.fks)
+	fkCols := fkColSet(level.fks)
+	header := buildHeader(cols, level.colWidths, visible, level.sort, level.colCursor, fkCols)
 	sep := buildSeparator(level.colWidths, visible)
 
 	lines := []string{sectionTitle, header, sep}
@@ -759,7 +758,7 @@ func (m RowBrowserModel) renderSavedLevel(level savedLevel) string {
 		if i >= compactParentRows {
 			break
 		}
-		lines = append(lines, buildRow(row, cols, level.colWidths, visible, i, level.rowCursor, level.colCursor, level.fks))
+		lines = append(lines, buildRow(row, cols, level.colWidths, visible, i, level.rowCursor, level.colCursor, fkCols))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -800,7 +799,8 @@ func (m RowBrowserModel) renderTable(height int) string {
 		visible = []int{m.colOffset}
 	}
 
-	header := buildHeader(cols, m.colWidths, visible, m.sort, m.colCursor, m.fks)
+	fkCols := fkColSet(m.fks)
+	header := buildHeader(cols, m.colWidths, visible, m.sort, m.colCursor, fkCols)
 	sep := buildSeparator(m.colWidths, visible)
 
 	maxRows := height - 2
@@ -815,7 +815,7 @@ func (m RowBrowserModel) renderTable(height int) string {
 		if i >= maxRows {
 			break
 		}
-		lines = append(lines, buildRow(row, cols, m.colWidths, visible, i, m.rowCursor, m.colCursor, m.fks))
+		lines = append(lines, buildRow(row, cols, m.colWidths, visible, i, m.rowCursor, m.colCursor, fkCols))
 	}
 
 	return strings.Join(lines, "\n")
@@ -837,12 +837,23 @@ func visibleColumns(cols []db.Column, widths []int, offset, totalWidth int) []in
 	return visible
 }
 
-func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.Sort, cursor int, fks []db.ForeignKey) string {
+func fkColSet(fks []db.ForeignKey) map[string]bool {
+	if len(fks) == 0 {
+		return nil
+	}
+	m := make(map[string]bool, len(fks))
+	for _, fk := range fks {
+		m[fk.Column] = true
+	}
+	return m
+}
+
+func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.Sort, cursor int, fkCols map[string]bool) string {
 	parts := make([]string, len(visible))
 	for j, i := range visible {
 		name := cols[i].Name
 		w := widths[i]
-		isFKCol := findFK(fks, name) != nil
+		isFKCol := fkCols[name]
 
 		var cell string
 		if sort != nil && sort.Column == name {
@@ -882,30 +893,38 @@ func buildSeparator(widths []int, visible []int) string {
 	return strings.Join(parts, "  ")
 }
 
-// buildRow renders a single data row. rowIdx is the row's position in the current page;
-// rowCursor is the selected row; colCursor is the selected column; fks is the FK list.
-func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int, rowIdx, rowCursor, colCursor int, fks []db.ForeignKey) string {
+func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int, rowIdx, rowCursor, colCursor int, fkCols map[string]bool) string {
 	isSelectedRow := rowIdx == rowCursor
 	parts := make([]string, len(visible))
 	for j, i := range visible {
-		v := row[cols[i].Name]
-		isFKCol := findFK(fks, cols[i].Name) != nil
-		isActiveFKCell := isSelectedRow && i == colCursor && isFKCol
+		colName := cols[i].Name
+		v := row[colName]
+		isCursorCell := isSelectedRow && i == colCursor
 
+		var raw string
 		if v == nil {
+			raw = "null"
+		} else {
+			raw = formatCellValue(v)
+		}
+
+		switch {
+		case isCursorCell && fkCols[colName]:
+			display := "[" + raw + "]"
+			cell := runewidth.FillRight(runewidth.Truncate(display, widths[i], "…"), widths[i])
+			parts[j] = style.FKCell.Render(cell)
+		case isCursorCell:
+			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
+			parts[j] = style.CursorCell.Render(cell)
+		case isSelectedRow:
+			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
+			parts[j] = style.RowHighlight.Render(cell)
+		case v == nil:
 			cell := runewidth.FillRight(runewidth.Truncate("null", widths[i], "…"), widths[i])
 			parts[j] = style.NullValue.Render(cell)
-		} else {
-			raw := formatCellValue(v)
-			if isActiveFKCell {
-				// Brackets indicate Enter will drill into this FK value.
-				display := "[" + raw + "]"
-				cell := runewidth.FillRight(runewidth.Truncate(display, widths[i], "…"), widths[i])
-				parts[j] = style.FKCell.Render(cell)
-			} else {
-				cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
-				parts[j] = cell
-			}
+		default:
+			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
+			parts[j] = cell
 		}
 	}
 	return strings.Join(parts, "  ")
