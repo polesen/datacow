@@ -132,35 +132,53 @@ func TestRowBrowserModel_PrevPageAtFirstPage(t *testing.T) {
 
 func TestRowBrowserModel_HorizontalScroll(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	cols := []db.Column{{Name: "id"}, {Name: "name"}, {Name: "email"}}
+	rows := []map[string]any{{"id": int64(1), "name": "Alice", "email": "a@b.com"}}
+	result := makeResult(1, 1, 2, cols, rows)
 
-	result := makeResult(1, 1, 2,
-		[]db.Column{{Name: "id"}, {Name: "name"}, {Name: "email"}},
-		[]map[string]any{{"id": int64(1), "name": "Alice", "email": "a@b.com"}},
-	)
-	m, _ = m.Update(views.RowsLoadedMsg(result))
+	// Narrow window (width=0): only 1 column fits, so cursor and scroll move together.
+	t.Run("narrow", func(t *testing.T) {
+		m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+		m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	if m.ColOffset() != 0 {
-		t.Errorf("expected colOffset 0, got %d", m.ColOffset())
-	}
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+		if m.ColCursor() != 1 || m.ColOffset() != 1 {
+			t.Errorf("after right: cursor=%d offset=%d, want cursor=1 offset=1", m.ColCursor(), m.ColOffset())
+		}
 
-	// Right key scrolls right
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	if m.ColOffset() != 1 {
-		t.Errorf("expected colOffset 1 after right, got %d", m.ColOffset())
-	}
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+		if m.ColCursor() != 0 || m.ColOffset() != 0 {
+			t.Errorf("after left: cursor=%d offset=%d, want cursor=0 offset=0", m.ColCursor(), m.ColOffset())
+		}
 
-	// Left key scrolls back
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	if m.ColOffset() != 0 {
-		t.Errorf("expected colOffset 0 after left, got %d", m.ColOffset())
-	}
+		// Cannot go left past 0.
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+		if m.ColCursor() != 0 || m.ColOffset() != 0 {
+			t.Errorf("past left boundary: cursor=%d offset=%d, want cursor=0 offset=0", m.ColCursor(), m.ColOffset())
+		}
+	})
 
-	// Cannot scroll left past 0
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	if m.ColOffset() != 0 {
-		t.Errorf("colOffset should stay at 0, got %d", m.ColOffset())
-	}
+	// Wide window (all columns visible): cursor moves without scrolling colOffset.
+	t.Run("wide", func(t *testing.T) {
+		m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+		m, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 30})
+		m, _ = m.Update(views.RowsLoadedMsg(result))
+
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+		if m.ColCursor() != 1 || m.ColOffset() != 0 {
+			t.Errorf("right in wide: cursor=%d offset=%d, want cursor=1 offset=0", m.ColCursor(), m.ColOffset())
+		}
+
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+		if m.ColCursor() != 2 || m.ColOffset() != 0 {
+			t.Errorf("right again in wide: cursor=%d offset=%d, want cursor=2 offset=0", m.ColCursor(), m.ColOffset())
+		}
+
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+		if m.ColCursor() != 1 || m.ColOffset() != 0 {
+			t.Errorf("left in wide: cursor=%d offset=%d, want cursor=1 offset=0", m.ColCursor(), m.ColOffset())
+		}
+	})
 }
 
 func TestRowBrowserModel_StatusLine(t *testing.T) {
@@ -328,7 +346,7 @@ func TestRowBrowserModel_Sort_Cycle(t *testing.T) {
 	)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	// colOffset=0 → sort on "id"
+	// colCursor=0 → sort on "id"
 	// First s: ASC
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	s := m.ActiveSort()

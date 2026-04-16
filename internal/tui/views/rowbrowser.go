@@ -43,7 +43,8 @@ type RowBrowserModel struct {
 	ds        dataset.Dataset
 	result    *dataset.QueryResult
 	colWidths []int
-	colOffset int
+	colOffset int // index of leftmost visible column (scroll position)
+	colCursor int // index of the active/selected column (sort target)
 	spinner   spinner.Model
 	loading   bool
 	err       error
@@ -287,12 +288,21 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(m.result.Page-1))
 		}
 	case key.Matches(msg, m.keys.Right):
-		if m.colOffset < len(m.result.Columns)-1 {
-			m.colOffset++
+		if m.colCursor < len(m.result.Columns)-1 {
+			m.colCursor++
+			// Scroll right if cursor moved past last visible column.
+			visible := visibleColumns(m.result.Columns, m.colWidths, m.colOffset, m.width)
+			if len(visible) > 0 && m.colCursor > visible[len(visible)-1] {
+				m.colOffset++
+			}
 		}
 	case key.Matches(msg, m.keys.Left):
-		if m.colOffset > 0 {
-			m.colOffset--
+		if m.colCursor > 0 {
+			m.colCursor--
+			// Scroll left if cursor moved before first visible column.
+			if m.colCursor < m.colOffset {
+				m.colOffset = m.colCursor
+			}
 		}
 	}
 	return m, nil
@@ -301,10 +311,10 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 // cycleSort advances the sort state for the column at colOffset:
 // no sort → ASC → DESC → no sort.
 func (m *RowBrowserModel) cycleSort() {
-	if m.result == nil || m.colOffset >= len(m.result.Columns) {
+	if m.result == nil || m.colCursor >= len(m.result.Columns) {
 		return
 	}
-	col := m.result.Columns[m.colOffset].Name
+	col := m.result.Columns[m.colCursor].Name
 	if m.sort == nil || m.sort.Column != col {
 		m.sort = &dataset.Sort{Column: col, Desc: false}
 	} else if !m.sort.Desc {
@@ -380,6 +390,7 @@ func (m RowBrowserModel) TotalRows() int64 {
 }
 
 func (m RowBrowserModel) ColOffset() int            { return m.colOffset }
+func (m RowBrowserModel) ColCursor() int            { return m.colCursor }
 func (m RowBrowserModel) IsLoading() bool           { return m.loading }
 func (m RowBrowserModel) Err() error                { return m.err }
 func (m RowBrowserModel) Filters() []dataset.Filter { return m.filters }
@@ -515,7 +526,7 @@ func (m RowBrowserModel) renderTable(height int) string {
 		visible = []int{m.colOffset}
 	}
 
-	header := buildHeader(cols, m.colWidths, visible, m.sort)
+	header := buildHeader(cols, m.colWidths, visible, m.sort, m.colCursor)
 	sep := buildSeparator(m.colWidths, visible)
 
 	maxRows := height - 2
@@ -552,7 +563,7 @@ func visibleColumns(cols []db.Column, widths []int, offset, totalWidth int) []in
 	return visible
 }
 
-func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.Sort) string {
+func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.Sort, cursor int) string {
 	parts := make([]string, len(visible))
 	for j, i := range visible {
 		name := cols[i].Name
@@ -573,8 +584,8 @@ func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.So
 		} else {
 			cell = runewidth.FillRight(runewidth.Truncate(name, w, "…"), w)
 		}
-		// The first visible column (j==0) is the sort target; highlight it.
-		if j == 0 {
+		// The active/cursor column is the sort target; highlight it.
+		if i == cursor {
 			parts[j] = style.ColHeaderActive.Render(cell)
 		} else {
 			parts[j] = style.ColHeader.Render(cell)
