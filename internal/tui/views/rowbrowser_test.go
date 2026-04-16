@@ -439,3 +439,304 @@ func TestRowBrowserModel_NeedsBackKey(t *testing.T) {
 		t.Error("NeedsBackKey should be true in filter input mode")
 	}
 }
+
+// --- FK drill-down tests ---
+
+func TestRowBrowserModel_RowCursor_Down(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 2,
+		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
+		[]map[string]any{
+			{"id": int64(1), "customer_id": int64(100)},
+			{"id": int64(2), "customer_id": int64(101)},
+		},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	if m.RowCursor() != 0 {
+		t.Errorf("expected row cursor 0 initially, got %d", m.RowCursor())
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.RowCursor() != 1 {
+		t.Errorf("expected row cursor 1 after down, got %d", m.RowCursor())
+	}
+
+	// Cannot go past last row
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.RowCursor() != 1 {
+		t.Errorf("expected row cursor still 1 at boundary, got %d", m.RowCursor())
+	}
+}
+
+func TestRowBrowserModel_RowCursor_Up(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 2,
+		[]db.Column{{Name: "id"}},
+		[]map[string]any{{"id": int64(1)}, {"id": int64(2)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.RowCursor() != 0 {
+		t.Errorf("expected row cursor 0 after up, got %d", m.RowCursor())
+	}
+
+	// Cannot go above 0
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.RowCursor() != 0 {
+		t.Errorf("expected row cursor still 0 at boundary, got %d", m.RowCursor())
+	}
+}
+
+func TestRowBrowserModel_FKsLoaded(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+
+	fks := []db.ForeignKey{
+		{Column: "customer_id", ReferencedTable: "customers", ReferencedColumn: "id"},
+	}
+	m, _ = m.Update(views.FKsLoadedMsg(fks))
+
+	if len(m.ForeignKeys()) != 1 {
+		t.Errorf("expected 1 FK, got %d", len(m.ForeignKeys()))
+	}
+	if m.ForeignKeys()[0].Column != "customer_id" {
+		t.Errorf("unexpected FK column: %s", m.ForeignKeys()[0].Column)
+	}
+}
+
+func TestRowBrowserModel_DrillDown_OnFKCell(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
+		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(views.FKsLoadedMsg([]db.ForeignKey{
+		{Column: "customer_id", ReferencedTable: "customers", ReferencedColumn: "id"},
+	}))
+
+	// Navigate to customer_id column
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+
+	// Press Enter to drill down
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.IsLoading() {
+		t.Error("expected loading state after drill-down")
+	}
+	if m.DrillDepth() != 1 {
+		t.Errorf("expected drill depth 1, got %d", m.DrillDepth())
+	}
+}
+
+func TestRowBrowserModel_DrillDown_OnNonFKCell(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
+		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(views.FKsLoadedMsg([]db.ForeignKey{
+		{Column: "customer_id", ReferencedTable: "customers", ReferencedColumn: "id"},
+	}))
+
+	// colCursor=0 (id column) — not an FK
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.DrillDepth() != 0 {
+		t.Errorf("expected drill depth 0, got %d", m.DrillDepth())
+	}
+	if m.IsLoading() {
+		t.Error("should not be loading after Enter on non-FK cell")
+	}
+}
+
+func TestRowBrowserModel_DrillDown_NullFKCell(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
+		[]map[string]any{{"id": int64(42), "customer_id": nil}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(views.FKsLoadedMsg([]db.ForeignKey{
+		{Column: "customer_id", ReferencedTable: "customers", ReferencedColumn: "id"},
+	}))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.DrillDepth() != 0 {
+		t.Error("should not drill into null FK cell")
+	}
+}
+
+func TestRowBrowserModel_PopDrillStack(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
+		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(views.FKsLoadedMsg([]db.ForeignKey{
+		{Column: "customer_id", ReferencedTable: "customers", ReferencedColumn: "id"},
+	}))
+
+	// Drill down
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.DrillDepth() != 1 {
+		t.Fatalf("setup: expected drill depth 1, got %d", m.DrillDepth())
+	}
+
+	// Press Esc to pop
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.DrillDepth() != 0 {
+		t.Errorf("expected drill depth 0 after esc, got %d", m.DrillDepth())
+	}
+	if m.IsLoading() {
+		t.Error("should not be loading after pop")
+	}
+}
+
+func TestRowBrowserModel_NeedsBackKey_WithDrillStack(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
+		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(views.FKsLoadedMsg([]db.ForeignKey{
+		{Column: "customer_id", ReferencedTable: "customers", ReferencedColumn: "id"},
+	}))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.NeedsBackKey() {
+		t.Error("NeedsBackKey should be true when drill stack is non-empty")
+	}
+}
+
+func TestRowBrowserModel_DrillStack_Rendering(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
+		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(views.FKsLoadedMsg([]db.ForeignKey{
+		{Column: "customer_id", ReferencedTable: "customers", ReferencedColumn: "id"},
+	}))
+
+	// Drill down
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Load child rows
+	childResult := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "name"}},
+		[]map[string]any{{"id": int64(1001), "name": "Jane Smith"}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(childResult))
+
+	v := m.View()
+	if !strings.Contains(v, "orders") {
+		t.Error("view should contain parent table name 'orders'")
+	}
+	if !strings.Contains(v, "customer_id") {
+		t.Error("view should contain FK breadcrumb with column name 'customer_id'")
+	}
+	if !strings.Contains(v, "Jane Smith") {
+		t.Error("view should contain child data 'Jane Smith'")
+	}
+}
+
+func TestRowBrowserModel_DrillDown_MultiLevel(t *testing.T) {
+	ds := dataset.Dataset{Name: "orders", Table: "orders"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 60})
+
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
+		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(views.FKsLoadedMsg([]db.ForeignKey{
+		{Column: "customer_id", ReferencedTable: "customers", ReferencedColumn: "id"},
+	}))
+
+	// First drill
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	customerResult := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "address_id"}},
+		[]map[string]any{{"id": int64(1001), "address_id": int64(5)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(customerResult))
+	m, _ = m.Update(views.FKsLoadedMsg([]db.ForeignKey{
+		{Column: "address_id", ReferencedTable: "addresses", ReferencedColumn: "id"},
+	}))
+
+	if m.DrillDepth() != 1 {
+		t.Fatalf("expected drill depth 1, got %d", m.DrillDepth())
+	}
+
+	// Second drill
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.DrillDepth() != 2 {
+		t.Errorf("expected drill depth 2, got %d", m.DrillDepth())
+	}
+
+	// Pop twice
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.DrillDepth() != 1 {
+		t.Errorf("after first pop, expected depth 1, got %d", m.DrillDepth())
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.DrillDepth() != 0 {
+		t.Errorf("after second pop, expected depth 0, got %d", m.DrillDepth())
+	}
+}
+
+func TestRowBrowserModel_DrillDown_CompositeFKGraceful(t *testing.T) {
+	// Two FK columns on the same table — should drill on the selected one without crashing.
+	ds := dataset.Dataset{Name: "order_items", Table: "order_items"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "order_id"}, {Name: "product_id"}},
+		[]map[string]any{{"order_id": int64(1), "product_id": int64(2)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(views.FKsLoadedMsg([]db.ForeignKey{
+		{Column: "order_id", ReferencedTable: "orders", ReferencedColumn: "id"},
+		{Column: "product_id", ReferencedTable: "products", ReferencedColumn: "id"},
+	}))
+
+	// Navigate to product_id column
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.DrillDepth() != 1 {
+		t.Errorf("expected drill depth 1, got %d", m.DrillDepth())
+	}
+	if !m.IsLoading() {
+		t.Error("expected loading after drill-down into product_id")
+	}
+}

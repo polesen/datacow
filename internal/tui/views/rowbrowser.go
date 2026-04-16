@@ -21,6 +21,22 @@ import (
 
 type RowsLoadedMsg *dataset.QueryResult
 
+// FKsLoadedMsg carries FK metadata for the active table.
+type FKsLoadedMsg []db.ForeignKey
+
+// rowsLoadedInternal is the message returned by loadPageCmd, carrying a sequence
+// number so stale results from cancelled drill-downs are silently discarded.
+type rowsLoadedInternal struct {
+	result *dataset.QueryResult
+	seq    int
+}
+
+// fksLoadedInternal mirrors FKsLoadedMsg but carries a sequence number.
+type fksLoadedInternal struct {
+	fks []db.ForeignKey
+	seq int
+}
+
 type uiMode int
 
 const (
@@ -39,19 +55,40 @@ type exportEvent struct {
 	err  error  // set on error completion
 }
 
+// savedLevel holds the complete state for one ancestor level of the drill-down stack.
+type savedLevel struct {
+	ds         dataset.Dataset
+	result     *dataset.QueryResult
+	fks        []db.ForeignKey
+	colWidths  []int
+	colOffset  int
+	colCursor  int
+	rowCursor  int
+	filters    []dataset.Filter
+	sort       *dataset.Sort
+	breadcrumb string // e.g. "→ customer_id = 1001 → customers"
+}
+
+// compactParentRows is the maximum data rows shown per parent level in the drill view.
+const compactParentRows = 4
+
 type RowBrowserModel struct {
-	ds        dataset.Dataset
-	result    *dataset.QueryResult
-	colWidths []int
-	colOffset int // index of leftmost visible column (scroll position)
-	colCursor int // index of the active/selected column (sort target)
-	spinner   spinner.Model
-	loading   bool
-	err       error
-	keys      keys.Map
-	width     int
-	height    int
-	executor  *dataset.Executor
+	ds         dataset.Dataset
+	result     *dataset.QueryResult
+	colWidths  []int
+	colOffset  int
+	colCursor  int
+	rowCursor  int
+	fks        []db.ForeignKey
+	drillStack []savedLevel
+	drillSeq   int // incremented on each drill/pop; stale async results are discarded
+	spinner    spinner.Model
+	loading    bool
+	err        error
+	keys       keys.Map
+	width      int
+	height     int
+	executor   *dataset.Executor
 
 	filters        []dataset.Filter
 	sort           *dataset.Sort
@@ -84,7 +121,7 @@ func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export
 }
 
 func (m RowBrowserModel) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
+	return tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd())
 }
 
 func (m RowBrowserModel) loadPageCmd(page int) tea.Cmd {
@@ -93,10 +130,12 @@ func (m RowBrowserModel) loadPageCmd(page int) tea.Cmd {
 	}
 	filters := m.filters
 	sort := m.sort
+	ds := m.ds
+	seq := m.drillSeq
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		result, err := m.executor.Query(ctx, m.ds, dataset.QueryOptions{
+		result, err := m.executor.Query(ctx, ds, dataset.QueryOptions{
 			Page:     page,
 			PageSize: 50,
 			Filters:  filters,
@@ -105,7 +144,24 @@ func (m RowBrowserModel) loadPageCmd(page int) tea.Cmd {
 		if err != nil {
 			return ErrMsg{err}
 		}
-		return RowsLoadedMsg(result)
+		return rowsLoadedInternal{result: result, seq: seq}
+	}
+}
+
+func (m RowBrowserModel) loadFKsCmd() tea.Cmd {
+	if m.executor == nil || m.ds.Table == "" {
+		return nil
+	}
+	table := m.ds.Table
+	seq := m.drillSeq
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		fks, err := m.executor.ForeignKeys(ctx, table)
+		if err != nil {
+			return fksLoadedInternal{fks: nil, seq: seq}
+		}
+		return fksLoadedInternal{fks: fks, seq: seq}
 	}
 }
 
@@ -125,9 +181,33 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		return m, cmd
 
 	case RowsLoadedMsg:
+		// Direct injection (tests / external callers) — always applies.
 		m.result = (*dataset.QueryResult)(msg)
 		m.loading = false
+		m.rowCursor = 0
 		m.colWidths = computeColWidths(m.result.Columns, m.result.Rows)
+		return m, nil
+
+	case rowsLoadedInternal:
+		if msg.seq != m.drillSeq {
+			return m, nil // stale result from a superseded load — discard
+		}
+		m.result = msg.result
+		m.loading = false
+		m.rowCursor = 0
+		m.colWidths = computeColWidths(m.result.Columns, m.result.Rows)
+		return m, nil
+
+	case FKsLoadedMsg:
+		// Direct injection (tests / external callers) — always applies.
+		m.fks = []db.ForeignKey(msg)
+		return m, nil
+
+	case fksLoadedInternal:
+		if msg.seq != m.drillSeq {
+			return m, nil // stale — discard
+		}
+		m.fks = msg.fks
 		return m, nil
 
 	case ErrMsg:
@@ -250,6 +330,11 @@ func (m RowBrowserModel) handleExportMenuKey(msg tea.KeyMsg) (RowBrowserModel, t
 }
 
 func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
+	// Back key pops the drill stack even while loading, so users can cancel a drill.
+	if key.Matches(msg, m.keys.Back) && len(m.drillStack) > 0 {
+		return m.popDrillStack()
+	}
+
 	if m.loading || m.err != nil || m.result == nil {
 		return m, nil
 	}
@@ -287,6 +372,16 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(m.result.Page-1))
 		}
+
+	case key.Matches(msg, m.keys.Down):
+		if m.rowCursor < len(m.result.Rows)-1 {
+			m.rowCursor++
+		}
+	case key.Matches(msg, m.keys.Up):
+		if m.rowCursor > 0 {
+			m.rowCursor--
+		}
+
 	case key.Matches(msg, m.keys.Right):
 		if m.colCursor < len(m.result.Columns)-1 {
 			m.colCursor++
@@ -304,11 +399,95 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 				m.colOffset = m.colCursor
 			}
 		}
+
+	case key.Matches(msg, m.keys.Enter):
+		return m.handleDrillDown()
 	}
 	return m, nil
 }
 
-// cycleSort advances the sort state for the column at colOffset:
+// handleDrillDown navigates from the selected FK cell into the referenced table.
+func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
+	if len(m.result.Rows) == 0 || m.rowCursor >= len(m.result.Rows) {
+		return m, nil
+	}
+
+	colName := m.result.Columns[m.colCursor].Name
+	fk := findFK(m.fks, colName)
+	if fk == nil {
+		return m, nil
+	}
+
+	row := m.result.Rows[m.rowCursor]
+	cellValue := row[colName]
+	if cellValue == nil {
+		return m, nil
+	}
+
+	saved := savedLevel{
+		ds:         m.ds,
+		result:     m.result,
+		fks:        m.fks,
+		colWidths:  m.colWidths,
+		colOffset:  m.colOffset,
+		colCursor:  m.colCursor,
+		rowCursor:  m.rowCursor,
+		filters:    m.filters,
+		sort:       m.sort,
+		breadcrumb: fmt.Sprintf("→ %s = %v → %s", fk.Column, formatCellValue(cellValue), fk.ReferencedTable),
+	}
+	m.drillStack = append(m.drillStack, saved)
+
+	m.ds = dataset.Dataset{Name: fk.ReferencedTable, Table: fk.ReferencedTable}
+	m.result = nil
+	m.fks = nil
+	m.colWidths = nil
+	m.colOffset = 0
+	m.colCursor = 0
+	m.rowCursor = 0
+	m.filters = []dataset.Filter{{
+		Column:   fk.ReferencedColumn,
+		Operator: "=",
+		Value:    cellValue,
+	}}
+	m.sort = nil
+	m.loading = true
+	m.err = nil
+	m.statusMsg = ""
+	m.mode = modeNormal
+	m.drillSeq++
+
+	return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd())
+}
+
+// popDrillStack collapses the most recent drill level and restores the parent state.
+func (m RowBrowserModel) popDrillStack() (RowBrowserModel, tea.Cmd) {
+	if len(m.drillStack) == 0 {
+		return m, nil
+	}
+
+	last := m.drillStack[len(m.drillStack)-1]
+	m.drillStack = m.drillStack[:len(m.drillStack)-1]
+
+	m.ds = last.ds
+	m.result = last.result
+	m.fks = last.fks
+	m.colWidths = last.colWidths
+	m.colOffset = last.colOffset
+	m.colCursor = last.colCursor
+	m.rowCursor = last.rowCursor
+	m.filters = last.filters
+	m.sort = last.sort
+	m.loading = false
+	m.err = nil
+	m.statusMsg = ""
+	m.mode = modeNormal
+	m.drillSeq++ // invalidate any in-flight child loads
+
+	return m, nil
+}
+
+// cycleSort advances the sort state for the column at colCursor:
 // no sort → ASC → DESC → no sort.
 func (m *RowBrowserModel) cycleSort() {
 	if m.result == nil || m.colCursor >= len(m.result.Columns) {
@@ -389,19 +568,32 @@ func (m RowBrowserModel) TotalRows() int64 {
 	return m.result.TotalRows
 }
 
-func (m RowBrowserModel) ColOffset() int            { return m.colOffset }
-func (m RowBrowserModel) ColCursor() int            { return m.colCursor }
-func (m RowBrowserModel) IsLoading() bool           { return m.loading }
-func (m RowBrowserModel) Err() error                { return m.err }
-func (m RowBrowserModel) Filters() []dataset.Filter { return m.filters }
-func (m RowBrowserModel) ActiveSort() *dataset.Sort { return m.sort }
-func (m RowBrowserModel) FilterInputActive() bool   { return m.mode == modeFilterInput }
-func (m RowBrowserModel) FilterPillsActive() bool   { return m.mode == modeFilterPills }
-func (m RowBrowserModel) ExportMenuActive() bool    { return m.mode == modeExportMenu }
+func (m RowBrowserModel) ColOffset() int               { return m.colOffset }
+func (m RowBrowserModel) ColCursor() int               { return m.colCursor }
+func (m RowBrowserModel) RowCursor() int               { return m.rowCursor }
+func (m RowBrowserModel) ForeignKeys() []db.ForeignKey { return m.fks }
+func (m RowBrowserModel) DrillDepth() int              { return len(m.drillStack) }
+func (m RowBrowserModel) IsLoading() bool              { return m.loading }
+func (m RowBrowserModel) Err() error                   { return m.err }
+func (m RowBrowserModel) Filters() []dataset.Filter    { return m.filters }
+func (m RowBrowserModel) ActiveSort() *dataset.Sort    { return m.sort }
+func (m RowBrowserModel) FilterInputActive() bool      { return m.mode == modeFilterInput }
+func (m RowBrowserModel) FilterPillsActive() bool      { return m.mode == modeFilterPills }
+func (m RowBrowserModel) ExportMenuActive() bool       { return m.mode == modeExportMenu }
+
+// IsFKColumn reports whether the currently selected column is a foreign key.
+func (m RowBrowserModel) IsFKColumn() bool {
+	if m.result == nil || m.colCursor >= len(m.result.Columns) {
+		return false
+	}
+	return findFK(m.fks, m.result.Columns[m.colCursor].Name) != nil
+}
 
 // NeedsBackKey returns true when the row browser is consuming the Back key
 // internally, so the app should not intercept it.
-func (m RowBrowserModel) NeedsBackKey() bool { return m.mode != modeNormal }
+func (m RowBrowserModel) NeedsBackKey() bool {
+	return m.mode != modeNormal || len(m.drillStack) > 0
+}
 
 func (m RowBrowserModel) StatusLine() string {
 	if m.mode == modeExporting {
@@ -441,34 +633,62 @@ func (m RowBrowserModel) View() string {
 		return ""
 	}
 
-	if m.loading {
+	// Full-screen spinner for the initial root-level load (no parent levels yet).
+	if m.loading && len(m.drillStack) == 0 {
 		return style.Content.Width(m.width).Height(m.height).Render(
 			m.spinner.View() + " Loading...",
 		)
 	}
 
-	if m.err != nil {
+	// Full-screen error for root-level failure.
+	if m.err != nil && len(m.drillStack) == 0 {
 		return style.Content.Width(m.width).Height(m.height).Render(
 			style.Error.Render("Error: " + m.err.Error()),
 		)
 	}
 
-	if m.result == nil {
-		return style.Content.Width(m.width).Height(m.height).Render("")
+	var sections []string
+
+	// Render all ancestor levels compactly, each followed by its drill separator.
+	parentLines := 0
+	for _, parent := range m.drillStack {
+		if parent.result != nil {
+			sections = append(sections, m.renderSavedLevel(parent))
+			sections = append(sections, renderDrillSeparator(parent.breadcrumb, m.width))
+			parentLines += parentLineCount(parent) + 1
+		}
 	}
 
-	var sections []string
+	// Render the active (bottom) level.
+	if m.loading {
+		sections = append(sections, m.spinner.View()+" Loading...")
+		return style.Content.Width(m.width).Height(m.height).Render(strings.Join(sections, "\n"))
+	}
+
+	if m.err != nil {
+		sections = append(sections, style.Error.Render("Error: "+m.err.Error()))
+		return style.Content.Width(m.width).Height(m.height).Render(strings.Join(sections, "\n"))
+	}
+
+	if m.result == nil {
+		return style.Content.Width(m.width).Height(m.height).Render(strings.Join(sections, "\n"))
+	}
 
 	// Filter pills row
 	if len(m.filters) > 0 {
 		sections = append(sections, m.renderFilterPills())
 	}
 
-	// Table (with available height)
-	tableHeight := m.height - len(sections)
-	if m.mode == modeFilterInput || m.mode == modeExportMenu || m.mode == modeExporting {
-		tableHeight--
+	filterPillLines := 0
+	if len(m.filters) > 0 {
+		filterPillLines = 1
 	}
+	bottomBarLines := 0
+	if m.mode == modeFilterInput || m.mode == modeExportMenu || m.mode == modeExporting {
+		bottomBarLines = 1
+	}
+
+	tableHeight := m.height - parentLines - filterPillLines - bottomBarLines
 	if tableHeight < 2 {
 		tableHeight = 2
 	}
@@ -513,6 +733,60 @@ func (m RowBrowserModel) renderFilterPills() string {
 	return strings.Join(parts, " ")
 }
 
+// renderSavedLevel renders a compact summary of an ancestor level.
+func (m RowBrowserModel) renderSavedLevel(level savedLevel) string {
+	if level.result == nil || len(level.result.Columns) == 0 {
+		return ""
+	}
+
+	// Section header showing the table name and total row count.
+	sectionTitle := style.DrillSep.Render(
+		fmt.Sprintf("─ %s (%s rows) ", level.ds.Name, formatCount(level.result.TotalRows)),
+	)
+
+	cols := level.result.Columns
+	rows := level.result.Rows
+	visible := visibleColumns(cols, level.colWidths, level.colOffset, m.width)
+	if len(visible) == 0 {
+		visible = []int{level.colOffset}
+	}
+
+	header := buildHeader(cols, level.colWidths, visible, level.sort, level.colCursor, level.fks)
+	sep := buildSeparator(level.colWidths, visible)
+
+	lines := []string{sectionTitle, header, sep}
+	for i, row := range rows {
+		if i >= compactParentRows {
+			break
+		}
+		lines = append(lines, buildRow(row, cols, level.colWidths, visible, i, level.rowCursor, level.colCursor, level.fks))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderDrillSeparator renders the breadcrumb line between drill levels.
+func renderDrillSeparator(breadcrumb string, width int) string {
+	label := " " + breadcrumb + " "
+	labelWidth := runewidth.StringWidth(label)
+	fillLen := width - labelWidth - 1
+	if fillLen < 0 {
+		fillLen = 0
+	}
+	return style.DrillSep.Render("├" + label + strings.Repeat("─", fillLen))
+}
+
+// parentLineCount returns the number of lines a saved level's compact view occupies.
+func parentLineCount(level savedLevel) int {
+	if level.result == nil {
+		return 0
+	}
+	rows := len(level.result.Rows)
+	if rows > compactParentRows {
+		rows = compactParentRows
+	}
+	return 3 + rows // section title + column header + separator + data rows
+}
+
 func (m RowBrowserModel) renderTable(height int) string {
 	cols := m.result.Columns
 	rows := m.result.Rows
@@ -526,7 +800,7 @@ func (m RowBrowserModel) renderTable(height int) string {
 		visible = []int{m.colOffset}
 	}
 
-	header := buildHeader(cols, m.colWidths, visible, m.sort, m.colCursor)
+	header := buildHeader(cols, m.colWidths, visible, m.sort, m.colCursor, m.fks)
 	sep := buildSeparator(m.colWidths, visible)
 
 	maxRows := height - 2
@@ -541,7 +815,7 @@ func (m RowBrowserModel) renderTable(height int) string {
 		if i >= maxRows {
 			break
 		}
-		lines = append(lines, buildRow(row, cols, m.colWidths, visible))
+		lines = append(lines, buildRow(row, cols, m.colWidths, visible, i, m.rowCursor, m.colCursor, m.fks))
 	}
 
 	return strings.Join(lines, "\n")
@@ -563,18 +837,19 @@ func visibleColumns(cols []db.Column, widths []int, offset, totalWidth int) []in
 	return visible
 }
 
-func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.Sort, cursor int) string {
+func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.Sort, cursor int, fks []db.ForeignKey) string {
 	parts := make([]string, len(visible))
 	for j, i := range visible {
 		name := cols[i].Name
 		w := widths[i]
+		isFKCol := findFK(fks, name) != nil
+
 		var cell string
 		if sort != nil && sort.Column == name {
 			indicator := "↑"
 			if sort.Desc {
 				indicator = "↓"
 			}
-			// Reserve 2 display cols for " ↑"/" ↓"; truncate name into remaining space.
 			usable := w - 2
 			if usable < 0 {
 				usable = 0
@@ -584,10 +859,15 @@ func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.So
 		} else {
 			cell = runewidth.FillRight(runewidth.Truncate(name, w, "…"), w)
 		}
-		// The active/cursor column is the sort target; highlight it.
-		if i == cursor {
+
+		switch {
+		case i == cursor && isFKCol:
+			parts[j] = style.FKColHeaderActive.Render(cell)
+		case i == cursor:
 			parts[j] = style.ColHeaderActive.Render(cell)
-		} else {
+		case isFKCol:
+			parts[j] = style.FKColHeader.Render(cell)
+		default:
 			parts[j] = style.ColHeader.Render(cell)
 		}
 	}
@@ -602,19 +882,43 @@ func buildSeparator(widths []int, visible []int) string {
 	return strings.Join(parts, "  ")
 }
 
-func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int) string {
+// buildRow renders a single data row. rowIdx is the row's position in the current page;
+// rowCursor is the selected row; colCursor is the selected column; fks is the FK list.
+func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int, rowIdx, rowCursor, colCursor int, fks []db.ForeignKey) string {
+	isSelectedRow := rowIdx == rowCursor
 	parts := make([]string, len(visible))
 	for j, i := range visible {
 		v := row[cols[i].Name]
+		isFKCol := findFK(fks, cols[i].Name) != nil
+		isActiveFKCell := isSelectedRow && i == colCursor && isFKCol
+
 		if v == nil {
 			cell := runewidth.FillRight(runewidth.Truncate("null", widths[i], "…"), widths[i])
 			parts[j] = style.NullValue.Render(cell)
 		} else {
-			cell := runewidth.FillRight(runewidth.Truncate(formatCellValue(v), widths[i], "…"), widths[i])
-			parts[j] = cell
+			raw := formatCellValue(v)
+			if isActiveFKCell {
+				// Brackets indicate Enter will drill into this FK value.
+				display := "[" + raw + "]"
+				cell := runewidth.FillRight(runewidth.Truncate(display, widths[i], "…"), widths[i])
+				parts[j] = style.FKCell.Render(cell)
+			} else {
+				cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
+				parts[j] = cell
+			}
 		}
 	}
 	return strings.Join(parts, "  ")
+}
+
+// findFK returns the ForeignKey for the given column name, or nil if none.
+func findFK(fks []db.ForeignKey, colName string) *db.ForeignKey {
+	for i := range fks {
+		if fks[i].Column == colName {
+			return &fks[i]
+		}
+	}
+	return nil
 }
 
 func computeColWidths(cols []db.Column, rows []map[string]any) []int {

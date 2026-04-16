@@ -99,3 +99,24 @@ var ExportBar = lipgloss.NewStyle().
 	Padding(0, 1)
 
 var Progress = lipgloss.NewStyle().Foreground(colorPrimary)
+
+// FKColHeader styles FK column name cells - different color to show they are navigable.
+var FKColHeader = lipgloss.NewStyle().
+	Foreground(colorKey).
+	Bold(true)
+
+// FKColHeaderActive styles the active (cursor) FK column header.
+var FKColHeaderActive = lipgloss.NewStyle().
+	Foreground(colorKey).
+	Bold(true).
+	Underline(true)
+
+// FKCell styles the active FK cell (cursor row + FK column) to show it can be drilled into.
+var FKCell = lipgloss.NewStyle().
+	Foreground(colorKey).
+	Bold(true)
+
+// DrillSep styles the separator line between drill-down levels.
+var DrillSep = lipgloss.NewStyle().
+	Foreground(colorPrimary).
+	Bold(true)

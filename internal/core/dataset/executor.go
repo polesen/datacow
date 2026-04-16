@@ -196,6 +196,11 @@ func (e *Executor) validateOptions(opts QueryOptions, colSet map[string]bool) er
 	return nil
 }
 
+// ForeignKeys returns FK relationships for the given table.
+func (e *Executor) ForeignKeys(ctx context.Context, table string) ([]db.ForeignKey, error) {
+	return e.client.ForeignKeys(ctx, table)
+}
+
 // extractCount pulls the _dc_count value from a COUNT(*) result row.
 func extractCount(rows []map[string]any) int64 {
 	if len(rows) == 0 {

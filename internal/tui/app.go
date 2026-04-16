@@ -210,15 +210,24 @@ func (a *App) renderStatusBar() string {
 func (a *App) renderRowBrowserStatusBar() string {
 	info := style.StatusDesc.Render(a.rowBrowser.StatusLine())
 
+	escDesc := " back"
+	if a.rowBrowser.DrillDepth() > 0 {
+		escDesc = " collapse"
+	}
+
 	keyParts := []string{
 		style.StatusKey.Render("q") + style.StatusDesc.Render(" quit"),
-		style.StatusKey.Render("esc") + style.StatusDesc.Render(" back"),
+		style.StatusKey.Render("esc") + style.StatusDesc.Render(escDesc),
 		style.StatusKey.Render("[") + style.StatusDesc.Render(" prev"),
 		style.StatusKey.Render("]") + style.StatusDesc.Render(" next"),
+		style.StatusKey.Render("↑↓") + style.StatusDesc.Render(" row"),
 		style.StatusKey.Render("←→") + style.StatusDesc.Render(" col"),
 		style.StatusKey.Render("/") + style.StatusDesc.Render(" filter"),
 		style.StatusKey.Render("s") + style.StatusDesc.Render(" sort"),
 		style.StatusKey.Render("e") + style.StatusDesc.Render(" export"),
+	}
+	if a.rowBrowser.IsFKColumn() {
+		keyParts = append(keyParts, style.StatusKey.Render("↵")+style.StatusDesc.Render(" drill"))
 	}
 	right := strings.Join(keyParts, "  ")
 
