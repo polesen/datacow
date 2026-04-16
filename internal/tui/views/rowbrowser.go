@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/beetio/datacow/internal/core/dataset"
 	"github.com/beetio/datacow/internal/core/db"
@@ -17,10 +17,8 @@ import (
 	"github.com/beetio/datacow/internal/tui/style"
 )
 
-// RowsLoadedMsg is sent when a page of rows has been fetched.
 type RowsLoadedMsg *dataset.QueryResult
 
-// RowBrowserModel renders a paginated table of rows for a single dataset.
 type RowBrowserModel struct {
 	ds        dataset.Dataset
 	result    *dataset.QueryResult
@@ -38,19 +36,15 @@ type RowBrowserModel struct {
 // NewRowBrowserModel creates a RowBrowserModel in the initial loading state.
 // executor may be nil for testing.
 func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, ds dataset.Dataset) RowBrowserModel {
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#7DCFFF"))
 	return RowBrowserModel{
 		ds:       ds,
-		spinner:  sp,
+		spinner:  newSpinner(),
 		loading:  true,
 		keys:     k,
 		executor: executor,
 	}
 }
 
-// Init starts the spinner and loads the first page.
 func (m RowBrowserModel) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
 }
@@ -73,7 +67,6 @@ func (m RowBrowserModel) loadPageCmd(page int) tea.Cmd {
 	}
 }
 
-// Update processes incoming messages and key events.
 func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -93,7 +86,7 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		m.result = (*dataset.QueryResult)(msg)
 		m.loading = false
 		m.colWidths = computeColWidths(m.result.Columns, m.result.Rows)
-		m.colOffset = 0
+		// Preserve colOffset across page changes so horizontal scroll survives pagination.
 		return m, nil
 
 	case ErrMsg:
@@ -131,7 +124,6 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 	return m, cmd
 }
 
-// Page returns the current page number, or 0 if no data loaded.
 func (m RowBrowserModel) Page() int {
 	if m.result == nil {
 		return 0
@@ -139,7 +131,6 @@ func (m RowBrowserModel) Page() int {
 	return m.result.Page
 }
 
-// TotalPages returns the total number of pages, or 0 if no data loaded.
 func (m RowBrowserModel) TotalPages() int {
 	if m.result == nil {
 		return 0
@@ -147,7 +138,6 @@ func (m RowBrowserModel) TotalPages() int {
 	return m.result.TotalPages
 }
 
-// TotalRows returns the total row count, or 0 if no data loaded.
 func (m RowBrowserModel) TotalRows() int64 {
 	if m.result == nil {
 		return 0
@@ -155,16 +145,10 @@ func (m RowBrowserModel) TotalRows() int64 {
 	return m.result.TotalRows
 }
 
-// ColOffset returns the current horizontal scroll column index.
-func (m RowBrowserModel) ColOffset() int { return m.colOffset }
-
-// IsLoading reports whether data is being fetched.
+func (m RowBrowserModel) ColOffset() int  { return m.colOffset }
 func (m RowBrowserModel) IsLoading() bool { return m.loading }
+func (m RowBrowserModel) Err() error      { return m.err }
 
-// Err returns the current error, if any.
-func (m RowBrowserModel) Err() error { return m.err }
-
-// StatusLine returns a compact summary for the App's status bar.
 func (m RowBrowserModel) StatusLine() string {
 	if m.result == nil {
 		return m.ds.Name
@@ -177,7 +161,6 @@ func (m RowBrowserModel) StatusLine() string {
 	)
 }
 
-// View renders the row browser panel.
 func (m RowBrowserModel) View() string {
 	if m.width == 0 {
 		return ""
@@ -190,9 +173,8 @@ func (m RowBrowserModel) View() string {
 	}
 
 	if m.err != nil {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E"))
 		return style.Content.Width(m.width).Height(m.height).Render(
-			errStyle.Render("Error: " + m.err.Error()),
+			style.Error.Render("Error: " + m.err.Error()),
 		)
 	}
 
@@ -200,7 +182,7 @@ func (m RowBrowserModel) View() string {
 		return style.Content.Width(m.width).Height(m.height).Render("")
 	}
 
-	return m.renderTable()
+	return style.Content.Width(m.width).Height(m.height).Render(m.renderTable())
 }
 
 func (m RowBrowserModel) renderTable() string {
@@ -208,19 +190,17 @@ func (m RowBrowserModel) renderTable() string {
 	rows := m.result.Rows
 
 	if len(cols) == 0 {
-		return style.Content.Width(m.width).Height(m.height).Render("No columns.")
+		return "No columns."
 	}
 
 	visible := visibleColumns(cols, m.colWidths, m.colOffset, m.width)
-	if len(visible) == 0 && len(cols) > 0 {
-		// Always show at least one column
+	if len(visible) == 0 {
 		visible = []int{m.colOffset}
 	}
 
 	header := buildHeader(cols, m.colWidths, visible)
 	sep := buildSeparator(m.colWidths, visible)
 
-	// rows area: total height minus header and separator lines
 	maxRows := m.height - 2
 	if maxRows < 0 {
 		maxRows = 0
@@ -239,7 +219,6 @@ func (m RowBrowserModel) renderTable() string {
 	return strings.Join(lines, "\n")
 }
 
-// visibleColumns returns the column indices visible from offset within totalWidth.
 func visibleColumns(cols []db.Column, widths []int, offset, totalWidth int) []int {
 	var visible []int
 	used := 0
@@ -257,8 +236,7 @@ func visibleColumns(cols []db.Column, widths []int, offset, totalWidth int) []in
 func buildHeader(cols []db.Column, widths []int, visible []int) string {
 	parts := make([]string, len(visible))
 	for j, i := range visible {
-		name := truncateStr(cols[i].Name, widths[i])
-		cell := fmt.Sprintf("%-*s", widths[i], name)
+		cell := runewidth.FillRight(runewidth.Truncate(cols[i].Name, widths[i], "…"), widths[i])
 		parts[j] = style.ColHeader.Render(cell)
 	}
 	return strings.Join(parts, "  ")
@@ -277,27 +255,25 @@ func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int)
 	for j, i := range visible {
 		v := row[cols[i].Name]
 		if v == nil {
-			cell := fmt.Sprintf("%-*s", widths[i], truncateStr("null", widths[i]))
+			cell := runewidth.FillRight(runewidth.Truncate("null", widths[i], "…"), widths[i])
 			parts[j] = style.NullValue.Render(cell)
 		} else {
-			s := truncateStr(formatCellValue(v), widths[i])
-			parts[j] = fmt.Sprintf("%-*s", widths[i], s)
+			cell := runewidth.FillRight(runewidth.Truncate(formatCellValue(v), widths[i], "…"), widths[i])
+			parts[j] = cell
 		}
 	}
 	return strings.Join(parts, "  ")
 }
 
-// computeColWidths calculates display widths for each column, capped at 40.
 func computeColWidths(cols []db.Column, rows []map[string]any) []int {
 	const maxColWidth = 40
 	widths := make([]int, len(cols))
 	for i, col := range cols {
-		widths[i] = len([]rune(col.Name))
+		widths[i] = runewidth.StringWidth(col.Name)
 	}
 	for _, row := range rows {
 		for i, col := range cols {
-			s := formatCellValue(row[col.Name])
-			if w := len([]rune(s)); w > widths[i] {
+			if w := runewidth.StringWidth(formatCellValue(row[col.Name])); w > widths[i] {
 				widths[i] = w
 			}
 		}
@@ -313,7 +289,6 @@ func computeColWidths(cols []db.Column, rows []map[string]any) []int {
 	return widths
 }
 
-// formatCellValue converts any cell value to its display string.
 func formatCellValue(v any) string {
 	if v == nil {
 		return "null"
@@ -331,16 +306,4 @@ func formatCellValue(v any) string {
 	default:
 		return fmt.Sprintf("%v", val)
 	}
-}
-
-// truncateStr truncates s to at most max runes, appending "…" if truncated.
-func truncateStr(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	if max <= 1 {
-		return "…"
-	}
-	return string(r[:max-1]) + "…"
 }

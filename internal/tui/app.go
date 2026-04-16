@@ -174,12 +174,11 @@ func (a *App) renderContent() string {
 	case screenRowBrowser:
 		return a.rowBrowser.View()
 	case screenError:
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E"))
 		var msg string
 		if a.initErr != nil {
-			msg = errStyle.Render("Connection error: " + a.initErr.Error())
+			msg = style.Error.Render("Connection error: " + a.initErr.Error())
 		} else {
-			msg = errStyle.Render("No connection. Use --connection-string to connect.")
+			msg = style.Error.Render("No connection. Use --connection-string to connect.")
 		}
 		return style.Content.Width(a.width).Height(h).Render(msg)
 	}

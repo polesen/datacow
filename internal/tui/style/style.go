@@ -67,3 +67,6 @@ var ColHeader = lipgloss.NewStyle().
 var NullValue = lipgloss.NewStyle().
 	Foreground(colorMuted).
 	Italic(true)
+
+// Error styles inline error messages.
+var Error = lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E"))

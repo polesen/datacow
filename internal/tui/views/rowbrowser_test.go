@@ -1,6 +1,7 @@
 package views_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/beetio/datacow/internal/core/dataset"
@@ -174,14 +175,7 @@ func TestRowBrowserModel_StatusLine(t *testing.T) {
 
 	sl := m.StatusLine()
 	for _, want := range []string{"users", "2", "5", "230"} {
-		found := false
-		for i := range sl {
-			if i+len(want) <= len(sl) && sl[i:i+len(want)] == want {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !strings.Contains(sl, want) {
 			t.Errorf("StatusLine %q missing %q", sl, want)
 		}
 	}
@@ -207,27 +201,16 @@ func TestRowBrowserModel_View(t *testing.T) {
 	}
 	// Should contain column headers
 	for _, col := range []string{"id", "name"} {
-		if !containsStr(v, col) {
+		if !strings.Contains(v, col) {
 			t.Errorf("view missing column header %q", col)
 		}
 	}
 	// Should show row data
-	if !containsStr(v, "Alice") {
+	if !strings.Contains(v, "Alice") {
 		t.Error("view missing row data 'Alice'")
 	}
 	// NULL value should appear
-	if !containsStr(v, "null") {
+	if !strings.Contains(v, "null") {
 		t.Error("view missing null indicator")
 	}
-}
-
-func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && func() bool {
-		for i := 0; i <= len(s)-len(sub); i++ {
-			if s[i:i+len(sub)] == sub {
-				return true
-			}
-		}
-		return false
-	}()
 }

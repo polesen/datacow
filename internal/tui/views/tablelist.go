@@ -9,31 +9,28 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/beetio/datacow/internal/core/dataset"
 	"github.com/beetio/datacow/internal/tui/keys"
 	"github.com/beetio/datacow/internal/tui/style"
 )
 
-// ErrMsg is sent when an async operation fails.
 type ErrMsg struct{ Err error }
 
-// TablesLoadedMsg is sent when the table list has been resolved.
 type TablesLoadedMsg []dataset.Dataset
 
-// RowCountMsg is sent when the row count for a single table has been fetched.
 type RowCountMsg struct {
 	Name  string
 	Count int64
 }
 
-// TableListModel renders a navigable list of all tables with lazy-loaded row counts.
 type TableListModel struct {
 	datasets     []dataset.Dataset
 	counts       map[string]int64
 	cursor       int
 	scrollOffset int
+	nextCountIdx int
 	spinner      spinner.Model
 	loading      bool
 	err          error
@@ -47,11 +44,8 @@ type TableListModel struct {
 // NewTableListModel creates a TableListModel in the initial loading state.
 // resolver and executor may be nil for testing.
 func NewTableListModel(k keys.Map, resolver *dataset.Resolver, executor *dataset.Executor) TableListModel {
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#7DCFFF"))
 	return TableListModel{
-		spinner:  sp,
+		spinner:  newSpinner(),
 		loading:  true,
 		keys:     k,
 		counts:   make(map[string]int64),
@@ -60,7 +54,6 @@ func NewTableListModel(k keys.Map, resolver *dataset.Resolver, executor *dataset
 	}
 }
 
-// Init starts the spinner and kicks off table discovery.
 func (m TableListModel) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, m.loadTablesCmd())
 }
@@ -95,7 +88,6 @@ func (m TableListModel) loadRowCountCmd(ds dataset.Dataset) tea.Cmd {
 	}
 }
 
-// Update processes all incoming messages and key events.
 func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -117,15 +109,24 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 		if len(m.datasets) == 0 {
 			return m, nil
 		}
-		cmds := make([]tea.Cmd, len(m.datasets))
-		for i, ds := range m.datasets {
-			cmds[i] = m.loadRowCountCmd(ds)
+		// Fire at most 5 concurrent count queries; chain the rest via RowCountMsg.
+		const maxConcurrent = 5
+		limit := min(len(m.datasets), maxConcurrent)
+		cmds := make([]tea.Cmd, limit)
+		for i := range limit {
+			cmds[i] = m.loadRowCountCmd(m.datasets[i])
 		}
+		m.nextCountIdx = limit
 		return m, tea.Batch(cmds...)
 
 	case RowCountMsg:
 		m.counts[msg.Name] = msg.Count
-		return m, nil
+		// Chain the next pending count if any remain.
+		if m.nextCountIdx < len(m.datasets) {
+			cmd = m.loadRowCountCmd(m.datasets[m.nextCountIdx])
+			m.nextCountIdx++
+		}
+		return m, cmd
 
 	case ErrMsg:
 		m.loading = false
@@ -158,7 +159,6 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 	return m, nil
 }
 
-// SelectedDataset returns the dataset at the cursor position, or nil.
 func (m TableListModel) SelectedDataset() *dataset.Dataset {
 	if len(m.datasets) == 0 || m.cursor >= len(m.datasets) {
 		return nil
@@ -167,19 +167,11 @@ func (m TableListModel) SelectedDataset() *dataset.Dataset {
 	return &ds
 }
 
-// IsLoading reports whether data is still being fetched.
-func (m TableListModel) IsLoading() bool { return m.loading }
+func (m TableListModel) IsLoading() bool    { return m.loading }
+func (m TableListModel) DatasetCount() int  { return len(m.datasets) }
+func (m TableListModel) Cursor() int        { return m.cursor }
+func (m TableListModel) Err() error         { return m.err }
 
-// DatasetCount returns the number of loaded datasets.
-func (m TableListModel) DatasetCount() int { return len(m.datasets) }
-
-// Cursor returns the current cursor position.
-func (m TableListModel) Cursor() int { return m.cursor }
-
-// Err returns the current error, if any.
-func (m TableListModel) Err() error { return m.err }
-
-// View renders the table list panel.
 func (m TableListModel) View() string {
 	if m.width == 0 {
 		return ""
@@ -192,9 +184,8 @@ func (m TableListModel) View() string {
 	}
 
 	if m.err != nil {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E"))
 		return style.Content.Width(m.width).Height(m.height).Render(
-			errStyle.Render("Error: "+m.err.Error()),
+			style.Error.Render("Error: " + m.err.Error()),
 		)
 	}
 
@@ -216,7 +207,9 @@ func (m TableListModel) View() string {
 		lines = append(lines, m.renderTableRow(i, m.datasets[i]))
 	}
 
-	return strings.Join(lines, "\n")
+	return style.Content.Width(m.width).Height(m.height).Render(
+		strings.Join(lines, "\n"),
+	)
 }
 
 func (m TableListModel) renderTableRow(i int, ds dataset.Dataset) string {
@@ -224,11 +217,7 @@ func (m TableListModel) renderTableRow(i int, ds dataset.Dataset) string {
 	const countWidth = 12
 	const margin = 2
 
-	name := ds.Name
-	if len([]rune(name)) > maxNameWidth {
-		r := []rune(name)
-		name = string(r[:maxNameWidth-1]) + "…"
-	}
+	name := runewidth.Truncate(ds.Name, maxNameWidth, "…")
 
 	count := "..."
 	if c, ok := m.counts[ds.Name]; ok {
@@ -247,7 +236,7 @@ func (m TableListModel) renderTableRow(i int, ds dataset.Dataset) string {
 		nameWidth = maxNameWidth
 	}
 
-	line := fmt.Sprintf("  %-*s%*s", nameWidth, name, countWidth, count)
+	line := "  " + runewidth.FillRight(name, nameWidth) + fmt.Sprintf("%*s", countWidth, count)
 
 	if i == m.cursor {
 		return style.RowSelected.Width(m.width).Render(line)
