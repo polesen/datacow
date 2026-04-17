@@ -15,17 +15,17 @@ Read `CLAUDE.md` in the repo root before starting any task.
 | M6 | [Filter, Sort, Export](M6-filter-sort-export.md) | done |
 | M7 | [FK Drill-Down](M7-fk-drilldown.md) | done |
 | — | [TUI Query Log](tui-query-log.md) | done |
-| M10 | [YAML Config + Custom Datasets](M10-yaml-config-datasets.md) | todo |
-| M11 | [Multi-Datasource TUI](M11-multi-datasource.md) | todo |
+| M8 | [YAML Config + Custom Datasets](M8-yaml-config-datasets.md) | todo |
+| M9 | [Multi-Datasource TUI](M9-multi-datasource.md) | todo |
 
 ## Future Work
 
-Not planned for the current version. Kept for reference.
+Not planned for the current version. Kept in `future/` for reference.
 
 | Task | Notes |
 |---|---|
-| [HTTP API Server](M8-http-api.md) | Enables the web app; defer until web UI is prioritised |
-| [Web App](M9-web-app.md) | Depends on HTTP API; full web UI for non-terminal users |
+| [HTTP API Server](future/M8-http-api.md) | Enables the web app; defer until web UI is prioritised |
+| [Web App](future/M9-web-app.md) | Depends on HTTP API; full web UI for non-terminal users |
 
 ## Running Autonomously
 
