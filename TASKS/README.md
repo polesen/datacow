@@ -5,20 +5,27 @@ Read `CLAUDE.md` in the repo root before starting any task.
 
 ## Milestone Order
 
-| Milestone | Task | Depends On | Status |
-|---|---|---|---|
-| M1 | [Project Scaffold](M1-project-scaffold.md) | — | done |
-| M2 | [Database Core Layer](M2-db-core.md) | M1 | done |
-| M3 | [Dataset Layer](M3-dataset-layer.md) | M2 | done |
-| M4 | [TUI Shell](M4-tui-shell.md) | M1 | done |
-| M5 | [TUI Table Browser](M5-tui-table-browser.md) ⭐ MVP | M2, M3, M4 | done |
-| M6 | [Filter, Sort, Export](M6-filter-sort-export.md) | M5 | done |
-| M7 | [FK Drill-Down](M7-fk-drilldown.md) | M5 | done |
-| — | [TUI Query Log](tui-query-log.md) | M7 | done |
-| M8 | [HTTP API Server](M8-http-api.md) | M3 | todo |
-| M9 | [Web App](M9-web-app.md) | M8 | todo |
-| M10 | [YAML Config + Custom Datasets](M10-yaml-config-datasets.md) | M3, M5 | todo |
-| M11 | [Multi-Datasource TUI](M11-multi-datasource.md) | M10 | todo |
+| Milestone | Task | Status |
+|---|---|---|
+| M1 | [Project Scaffold](M1-project-scaffold.md) | done |
+| M2 | [Database Core Layer](M2-db-core.md) | done |
+| M3 | [Dataset Layer](M3-dataset-layer.md) | done |
+| M4 | [TUI Shell](M4-tui-shell.md) | done |
+| M5 | [TUI Table Browser](M5-tui-table-browser.md) ⭐ MVP | done |
+| M6 | [Filter, Sort, Export](M6-filter-sort-export.md) | done |
+| M7 | [FK Drill-Down](M7-fk-drilldown.md) | done |
+| — | [TUI Query Log](tui-query-log.md) | done |
+| M10 | [YAML Config + Custom Datasets](M10-yaml-config-datasets.md) | todo |
+| M11 | [Multi-Datasource TUI](M11-multi-datasource.md) | todo |
+
+## Future Work
+
+Not planned for the current version. Kept for reference.
+
+| Task | Notes |
+|---|---|
+| [HTTP API Server](M8-http-api.md) | Enables the web app; defer until web UI is prioritised |
+| [Web App](M9-web-app.md) | Depends on HTTP API; full web UI for non-terminal users |
 
 ## Running Autonomously
 
