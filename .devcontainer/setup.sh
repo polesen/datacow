@@ -5,6 +5,7 @@ echo "==> Installing system packages..."
 sudo apt-get update -q && sudo apt-get install -y -q \
   postgresql-client \
   default-mysql-client \
+  python3 \
   iputils-ping \
   curl
 

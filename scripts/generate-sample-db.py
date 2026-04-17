@@ -99,7 +99,7 @@ class DatabaseGenerator:
 
     def generate_postgres(self) -> str:
         """Generate PostgreSQL init script."""
-        sql = "-- Datacow Sample Database (PostgreSQL)\n"
+        sql = "-- Datacow Sample Database (PostgreSQL) — database: datacow_sample\n"
         sql += "-- Theme: SaaS Analytics Platform\n"
         sql += "-- 100+ tables with FK relationships, large JSON, and empty tables\n\n"
         sql += self.generate_core_tables('postgres')
@@ -126,7 +126,7 @@ class DatabaseGenerator:
 
     def generate_mysql(self) -> str:
         """Generate MySQL init script."""
-        sql = "-- Datacow Sample Database (MySQL)\n"
+        sql = "-- Datacow Sample Database (MySQL) — database: datacow_sample\n"
         sql += "-- Theme: SaaS Analytics Platform\n"
         sql += "-- 100+ tables with FK relationships, large JSON, and empty tables\n\n"
         sql += self.generate_core_tables('mysql')

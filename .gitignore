@@ -24,3 +24,6 @@ CONTEXT.local.md
 
 .env.local
 
+# Generated sample data (run `make seed` to generate and load)
+scripts/init-*.sql
+
