@@ -74,7 +74,7 @@ func Default() Map {
 			key.WithHelp("↵", "select"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("esc", "backspace"),
+			key.WithKeys("esc"),
 			key.WithHelp("esc", "back"),
 		),
 		NextPage: key.NewBinding(

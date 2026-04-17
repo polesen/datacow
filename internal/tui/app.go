@@ -123,6 +123,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
+	// RowCountMsg always goes to the table list so the count chain keeps
+	// running and completing even when the user is in the row browser.
+	if _, ok := msg.(views.RowCountMsg); ok {
+		a.tableList, cmd = a.tableList.Update(msg)
+		return a, cmd
+	}
+
 	// Route remaining messages to the active screen.
 	switch a.screen {
 	case screenTableList:
