@@ -17,6 +17,8 @@ Read `CLAUDE.md` in the repo root before starting any task.
 | — | [TUI Query Log](tui-query-log.md) | M7 | done |
 | M8 | [HTTP API Server](M8-http-api.md) | M3 | todo |
 | M9 | [Web App](M9-web-app.md) | M8 | todo |
+| M10 | [YAML Config + Custom Datasets](M10-yaml-config-datasets.md) | M3, M5 | todo |
+| M11 | [Multi-Datasource TUI](M11-multi-datasource.md) | M10 | todo |
 
 ## Running Autonomously
 
