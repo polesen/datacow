@@ -6,7 +6,9 @@ services:
     environment:
       POSTGRES_USER: datacow
       POSTGRES_PASSWORD: datacow
-      POSTGRES_DB: datacow_test
+      POSTGRES_DB: datacow
+    volumes:
+      - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U datacow"]
       interval: 5s
@@ -20,8 +22,10 @@ services:
     environment:
       MYSQL_USER: datacow
       MYSQL_PASSWORD: datacow
-      MYSQL_DATABASE: datacow_test
+      MYSQL_DATABASE: datacow
       MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - ./scripts/init-mysql.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "datacow", "-pdatacow"]
       interval: 5s
