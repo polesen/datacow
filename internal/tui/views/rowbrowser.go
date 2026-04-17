@@ -594,6 +594,14 @@ func (m RowBrowserModel) NeedsBackKey() bool {
 	return m.mode != modeNormal || len(m.drillStack) > 0
 }
 
+// NeedsTabKey returns true when the row browser is consuming Tab internally
+// (filter pill navigation or filter input), so App should not intercept Tab as a focus switch.
+func (m RowBrowserModel) NeedsTabKey() bool {
+	return m.mode == modeFilterInput ||
+		(m.mode == modeNormal && len(m.filters) > 0) ||
+		m.mode == modeFilterPills
+}
+
 func (m RowBrowserModel) exportProgressText() string {
 	return fmt.Sprintf("Exporting... %s rows written", formatCount(int64(m.exportProgress)))
 }

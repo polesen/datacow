@@ -13,6 +13,10 @@ type Map struct {
 	Sort         key.Binding
 	Export       key.Binding
 	QueryLog     key.Binding
+	SwitchFocus  key.Binding
+	Pane1        key.Binding
+	Pane2        key.Binding
+	Pane3        key.Binding
 	Up           key.Binding
 	Down         key.Binding
 	Left         key.Binding
@@ -58,6 +62,22 @@ func Default() Map {
 			key.WithKeys("L"),
 			key.WithHelp("L", "query log"),
 		),
+		SwitchFocus: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "next pane"),
+		),
+		Pane1: key.NewBinding(
+			key.WithKeys("1"),
+			key.WithHelp("1", "tables"),
+		),
+		Pane2: key.NewBinding(
+			key.WithKeys("2"),
+			key.WithHelp("2", "browser"),
+		),
+		Pane3: key.NewBinding(
+			key.WithKeys("3"),
+			key.WithHelp("3", "sql"),
+		),
 		Up: key.NewBinding(
 			key.WithKeys("up", "k"),
 			key.WithHelp("↑/k", "up"),
@@ -100,7 +120,7 @@ func (m Map) ShortHelp() []key.Binding {
 
 // TableListHelp returns bindings that are active in the table list view.
 func (m Map) TableListHelp() []key.Binding {
-	return []key.Binding{m.Quit, m.Up, m.Down, m.Enter}
+	return []key.Binding{m.Quit, m.Up, m.Down, m.Enter, m.SwitchFocus, m.Pane1, m.Pane2, m.Pane3}
 }
 
 // FullHelp returns all bindings grouped for a full help overlay.
@@ -108,5 +128,6 @@ func (m Map) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{m.Up, m.Down, m.Left, m.Right},
 		{m.Enter, m.Back, m.Filter, m.Sort, m.Export, m.Help, m.Quit},
+		{m.SwitchFocus, m.Pane1, m.Pane2, m.Pane3, m.QueryLog},
 	}
 }

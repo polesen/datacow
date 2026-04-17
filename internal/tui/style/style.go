@@ -132,3 +132,25 @@ var FKCell = lipgloss.NewStyle().
 var DrillSep = lipgloss.NewStyle().
 	Foreground(colorPrimary).
 	Bold(true)
+
+// PanelActive is the border style for the focused pane.
+var PanelActive = lipgloss.NewStyle().
+	Border(lipgloss.RoundedBorder()).
+	BorderForeground(colorPrimary)
+
+// PanelInactive is the border style for unfocused panes.
+var PanelInactive = lipgloss.NewStyle().
+	Border(lipgloss.RoundedBorder()).
+	BorderForeground(colorBorder)
+
+// PanelTitleActive styles the title line inside a focused pane.
+var PanelTitleActive = lipgloss.NewStyle().
+	Foreground(colorPrimary).
+	Bold(true)
+
+// PanelTitleInactive styles the title line inside an unfocused pane.
+var PanelTitleInactive = lipgloss.NewStyle().
+	Foreground(colorMuted)
+
+// Muted renders dimmed helper text.
+var Muted = lipgloss.NewStyle().Foreground(colorMuted)

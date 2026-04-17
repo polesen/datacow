@@ -21,11 +21,21 @@ import (
 type screen int
 
 const (
-	screenTableList screen = iota
-	screenRowBrowser
-	screenQueryLog
-	screenError
+	screenSplit    screen = iota // normal 3-pane split view
+	screenQueryLog               // full-screen query log overlay
+	screenError                  // connection failed
 )
+
+type focus int
+
+const (
+	focusTables     focus = iota // pane 1: table list (left)
+	focusRowBrowser              // pane 2: row browser (right)
+	focusSQL                     // pane 3: SQL log (bottom)
+)
+
+// sqlPaneContentH is the number of content lines in the SQL strip (excludes border and title).
+const sqlPaneContentH = 3
 
 // Config holds the startup configuration passed from cmd/main.go.
 type Config struct {
@@ -38,21 +48,24 @@ type Config struct {
 
 // App is the root Bubble Tea model for Datacow.
 type App struct {
-	cfg          Config
-	keys         keys.Map
-	connLabel    string
-	width        int
-	height       int
-	screen       screen
-	prevScreen   screen
-	tableList    views.TableListModel
-	rowBrowser   views.RowBrowserModel
-	queryLogView views.QueryLogView
-	executor     *dataset.Executor
-	exporter     *export.Exporter
-	queryLog     *db.QueryLog
-	appSpinner   spinner.Model
-	initErr      error
+	cfg                 Config
+	keys                keys.Map
+	connLabel           string
+	width               int
+	height              int
+	screen              screen
+	screenBeforeOverlay screen
+	focus               focus
+	tableList           views.TableListModel
+	rowBrowser          views.RowBrowserModel
+	rowBrowserReady     bool
+	sqlPane             views.SQLPaneModel
+	queryLogView        views.QueryLogView
+	executor            *dataset.Executor
+	exporter            *export.Exporter
+	queryLog            *db.QueryLog
+	appSpinner          spinner.Model
+	initErr             error
 }
 
 // New creates a ready-to-run App.
@@ -79,7 +92,9 @@ func New(cfg Config, client db.Client, connErr error) *App {
 		a.executor = executor
 		a.exporter = export.NewExporter(executor)
 		a.tableList = views.NewTableListModel(a.keys, resolver, executor)
-		a.screen = screenTableList
+		a.sqlPane = views.NewSQLPaneModel(a.keys, queryLog)
+		a.screen = screenSplit
+		a.focus = focusTables
 	} else {
 		a.screen = screenError
 	}
@@ -90,25 +105,97 @@ func New(cfg Config, client db.Client, connErr error) *App {
 // Init implements tea.Model.
 func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{a.appSpinner.Tick}
-	if a.screen == screenTableList {
+	if a.screen == screenSplit {
 		cmds = append(cmds, a.tableList.Init())
 	}
 	return tea.Batch(cmds...)
+}
+
+// ---- Sizing helpers ----
+
+// contentHeight is total lines available between header and status bar.
+func (a *App) contentHeight() int {
+	h := a.height - 3 // header (1) + blank spacer (1) + status bar (1)
+	if h < 0 {
+		h = 0
+	}
+	return h
+}
+
+// sqlPaneOuterH is the rendered height of the SQL pane including its border and title line.
+func (a *App) sqlPaneOuterH() int { return 1 + sqlPaneContentH + 2 } // title + content + top/bottom border
+
+// topSectionOuterH is the height allocated to the left+right panel row.
+func (a *App) topSectionOuterH() int {
+	h := a.contentHeight() - a.sqlPaneOuterH()
+	if h < 4 {
+		h = 4
+	}
+	return h
+}
+
+// panelInnerH is the inner height of the left/right bordered panels (title line + model content).
+func (a *App) panelInnerH() int {
+	h := a.topSectionOuterH() - 2 // subtract top + bottom border
+	if h < 2 {
+		h = 2
+	}
+	return h
+}
+
+// modelH is the height given to each model's View (panelInnerH minus the title line).
+func (a *App) modelH() int {
+	h := a.panelInnerH() - 1
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+func (a *App) leftOuterW() int {
+	w := a.width * 28 / 100
+	if w < 20 {
+		w = 20
+	}
+	return w
+}
+
+func (a *App) leftInnerW() int {
+	w := a.leftOuterW() - 2
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+func (a *App) rightOuterW() int { return a.width - a.leftOuterW() }
+
+func (a *App) rightInnerW() int {
+	w := a.rightOuterW() - 2
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+func (a *App) sqlInnerW() int {
+	w := a.width - 2
+	if w < 1 {
+		w = 1
+	}
+	return w
 }
 
 // Update implements tea.Model.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
-	// Always advance the app spinner and sync its frame to the query log view.
+	// Always advance the spinner and sync its frame to the query log view.
 	if tickMsg, ok := msg.(spinner.TickMsg); ok {
 		a.appSpinner, cmd = a.appSpinner.Update(tickMsg)
 		a.queryLogView.SetSpinChar(a.appSpinner.View())
-		// Forward spinner tick to active screen too.
-		switch a.screen {
-		case screenTableList:
-			a.tableList, _ = a.tableList.Update(msg)
-		case screenRowBrowser:
+		a.tableList, _ = a.tableList.Update(msg)
+		if a.rowBrowserReady {
 			a.rowBrowser, _ = a.rowBrowser.Update(msg)
 		}
 		return a, cmd
@@ -120,70 +207,113 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 		}
 
-		// Toggle query log (L key).
+		// Query log overlay toggle — global regardless of focused pane.
 		if key.Matches(msg, a.keys.QueryLog) {
 			if a.screen == screenQueryLog {
-				a.screen = a.prevScreen
+				a.screen = a.screenBeforeOverlay
 			} else {
-				a.prevScreen = a.screen
+				a.screenBeforeOverlay = a.screen
 				a.screen = screenQueryLog
 			}
 			return a, nil
 		}
 
-		// Esc from query log returns to previous screen.
+		// Esc closes the query log overlay.
 		if a.screen == screenQueryLog && key.Matches(msg, a.keys.Back) {
-			a.screen = a.prevScreen
+			a.screen = a.screenBeforeOverlay
 			return a, nil
 		}
 
-		// Open selected table.
-		if a.screen == screenTableList && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
-			if ds := a.tableList.SelectedDataset(); ds != nil {
-				a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds)
-				h := a.contentHeight()
-				a.rowBrowser, _ = a.rowBrowser.Update(tea.WindowSizeMsg{Width: a.width - 1, Height: h})
-				a.screen = screenRowBrowser
-				return a, a.rowBrowser.Init()
+		if a.screen == screenSplit {
+			// Number keys switch focus — but not while row browser filter input is active.
+			inFilterInput := a.rowBrowserReady && a.rowBrowser.FilterInputActive()
+			if !inFilterInput {
+				switch msg.String() {
+				case "1":
+					a.focus = focusTables
+					return a, nil
+				case "2":
+					a.focus = focusRowBrowser
+					return a, nil
+				case "3":
+					a.focus = focusSQL
+					return a, nil
+				}
 			}
-			return a, nil
-		}
 
-		// Go back to table list (only when row browser isn't consuming the Back key).
-		if a.screen == screenRowBrowser && key.Matches(msg, a.keys.Back) && !a.rowBrowser.NeedsBackKey() {
-			a.screen = screenTableList
-			return a, nil
+			// Tab cycles panes — unless the row browser needs Tab for filter pill navigation.
+			if key.Matches(msg, a.keys.SwitchFocus) {
+				if !a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey() {
+					a.focus = focus((int(a.focus) + 1) % 3)
+					return a, nil
+				}
+				// Fall through: let row browser consume Tab for filter pills.
+			}
+
+			// Enter or Right on the table list opens the selected table in the row browser.
+			if a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
+				if ds := a.tableList.SelectedDataset(); ds != nil {
+					a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds)
+					sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
+					a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
+					a.rowBrowserReady = true
+					a.focus = focusRowBrowser
+					return a, a.rowBrowser.Init()
+				}
+				return a, nil
+			}
+
+			// Left from row browser at column 0 with no modal/drill → focus table list.
+			if a.focus == focusRowBrowser && key.Matches(msg, a.keys.Left) &&
+				a.rowBrowserReady && !a.rowBrowser.NeedsBackKey() &&
+				a.rowBrowser.ColCursor() == 0 {
+				a.focus = focusTables
+				return a, nil
+			}
+
+			// Esc from row browser with nothing to collapse → focus table list.
+			if a.focus == focusRowBrowser && key.Matches(msg, a.keys.Back) &&
+				a.rowBrowserReady && !a.rowBrowser.NeedsBackKey() {
+				a.focus = focusTables
+				return a, nil
+			}
 		}
 
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
-		h := a.contentHeight()
-		inner := tea.WindowSizeMsg{Width: msg.Width - 1, Height: h}
-		switch a.screen {
-		case screenTableList:
-			a.tableList, _ = a.tableList.Update(inner)
-		case screenRowBrowser:
-			a.rowBrowser, _ = a.rowBrowser.Update(inner)
-		case screenQueryLog:
-			a.queryLogView, _ = a.queryLogView.Update(tea.WindowSizeMsg{Width: msg.Width - 1, Height: h})
+		// Always resize all panels — even unfocused ones must be correctly sized.
+		a.tableList, _ = a.tableList.Update(tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
+		if a.rowBrowserReady {
+			a.rowBrowser, _ = a.rowBrowser.Update(tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()})
+		}
+		a.sqlPane, _ = a.sqlPane.Update(tea.WindowSizeMsg{Width: a.sqlInnerW(), Height: sqlPaneContentH})
+		if a.screen == screenQueryLog {
+			a.queryLogView, _ = a.queryLogView.Update(tea.WindowSizeMsg{Width: a.width - 1, Height: a.contentHeight()})
 		}
 		return a, nil
 	}
 
-	// RowCountMsg always goes to the table list so the count chain keeps
-	// running and completing even when the user is in the row browser.
+	// RowCountMsg always goes to the table list to keep the count chain running
+	// even when the user has navigated to another pane.
 	if _, ok := msg.(views.RowCountMsg); ok {
 		a.tableList, cmd = a.tableList.Update(msg)
 		return a, cmd
 	}
 
-	// Route remaining messages to the active screen.
+	// Route remaining messages to the active screen/pane.
 	switch a.screen {
-	case screenTableList:
-		a.tableList, cmd = a.tableList.Update(msg)
-	case screenRowBrowser:
-		a.rowBrowser, cmd = a.rowBrowser.Update(msg)
+	case screenSplit:
+		switch a.focus {
+		case focusTables:
+			a.tableList, cmd = a.tableList.Update(msg)
+		case focusRowBrowser:
+			if a.rowBrowserReady {
+				a.rowBrowser, cmd = a.rowBrowser.Update(msg)
+			}
+		case focusSQL:
+			a.sqlPane, cmd = a.sqlPane.Update(msg)
+		}
 	case screenQueryLog:
 		a.queryLogView, cmd = a.queryLogView.Update(msg)
 	}
@@ -196,46 +326,29 @@ func (a *App) View() string {
 	if a.width == 0 {
 		return ""
 	}
-
 	header := a.renderHeader()
 	statusBar := a.renderStatusBar()
 	content := a.renderContent()
-
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", content, statusBar)
-}
-
-func (a *App) contentHeight() int {
-	// Header (1) + blank spacer (1) + status bar (1) = 3 fixed lines.
-	h := a.height - 3
-	if h < 0 {
-		h = 0
-	}
-	return h
 }
 
 func (a *App) renderHeader() string {
 	title := style.HeaderTitle.Render(fmt.Sprintf("datacow %s", a.cfg.Version))
 	connInfo := style.HeaderMeta.Render(a.connLabel)
-
 	gap := a.width - lipgloss.Width(title) - lipgloss.Width(connInfo)
 	if gap < 0 {
 		gap = 0
 	}
 	fill := style.HeaderFill.Render(strings.Repeat(" ", gap))
-
 	return lipgloss.JoinHorizontal(lipgloss.Top, title, fill, connInfo)
 }
 
 func (a *App) renderContent() string {
-	h := a.contentHeight()
-	leftPad := lipgloss.NewStyle().PaddingLeft(1)
-
 	switch a.screen {
-	case screenTableList:
-		return leftPad.Render(a.tableList.View())
-	case screenRowBrowser:
-		return leftPad.Render(a.rowBrowser.View())
+	case screenSplit:
+		return a.renderSplitContent()
 	case screenQueryLog:
+		leftPad := lipgloss.NewStyle().PaddingLeft(1)
 		return leftPad.Render(a.queryLogView.View())
 	case screenError:
 		var msg string
@@ -244,13 +357,66 @@ func (a *App) renderContent() string {
 		} else {
 			msg = style.Error.Render("No connection. Use --connection-string to connect.")
 		}
-		return style.Content.Width(a.width).Height(h).Render(msg)
+		return style.Content.Width(a.width).Height(a.contentHeight()).Render(msg)
 	}
-	return style.Content.Width(a.width).Height(h).Render("")
+	return ""
+}
+
+func (a *App) renderSplitContent() string {
+	lw := a.leftInnerW()
+	rw := a.rightInnerW()
+	ph := a.panelInnerH()
+	sw := a.sqlInnerW()
+	sqlH := 1 + sqlPaneContentH // title line + content lines
+
+	// Left pane: table list.
+	leftContent := lipgloss.JoinVertical(lipgloss.Left,
+		a.paneTitle("1 Tables", a.focus == focusTables, lw),
+		a.tableList.View(),
+	)
+	leftBox := paneBorder(a.focus == focusTables).Width(lw).Height(ph).Render(leftContent)
+
+	// Right pane: row browser.
+	rightContent := lipgloss.JoinVertical(lipgloss.Left,
+		a.paneTitle("2 Row Browser", a.focus == focusRowBrowser, rw),
+		a.renderRightPane(),
+	)
+	rightBox := paneBorder(a.focus == focusRowBrowser).Width(rw).Height(ph).Render(rightContent)
+
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
+
+	// Bottom pane: SQL log strip (full width).
+	sqlContent := lipgloss.JoinVertical(lipgloss.Left,
+		a.paneTitle("3 SQL", a.focus == focusSQL, sw),
+		a.sqlPane.SetFocused(a.focus == focusSQL).View(),
+	)
+	sqlBox := paneBorder(a.focus == focusSQL).Width(sw).Height(sqlH).Render(sqlContent)
+
+	return lipgloss.JoinVertical(lipgloss.Left, topRow, sqlBox)
+}
+
+func (a *App) renderRightPane() string {
+	if !a.rowBrowserReady {
+		return style.Muted.Render("  Select a table with ↵ or → or press 1")
+	}
+	return a.rowBrowser.View()
+}
+
+func (a *App) paneTitle(title string, active bool, width int) string {
+	if active {
+		return style.PanelTitleActive.Width(width).Render(title)
+	}
+	return style.PanelTitleInactive.Width(width).Render(title)
+}
+
+func paneBorder(active bool) lipgloss.Style {
+	if active {
+		return style.PanelActive
+	}
+	return style.PanelInactive
 }
 
 func (a *App) renderStatusBar() string {
-	// Running query indicator in status bar.
 	var runningPart string
 	if a.queryLog != nil && a.queryLog.RunningCount() > 0 {
 		count := a.queryLog.RunningCount()
@@ -259,16 +425,19 @@ func (a *App) renderStatusBar() string {
 			style.StatusDesc.Render(fmt.Sprintf(" %d running: %s", count, label))
 	}
 
-	if a.screen == screenRowBrowser && !a.rowBrowser.IsLoading() && a.rowBrowser.Err() == nil {
+	if a.screen == screenSplit && a.focus == focusRowBrowser &&
+		a.rowBrowserReady && !a.rowBrowser.IsLoading() && a.rowBrowser.Err() == nil {
 		return a.renderRowBrowserStatusBar(runningPart)
 	}
 
 	var bindings []key.Binding
-	switch a.screen {
-	case screenTableList:
-		bindings = a.keys.TableListHelp()
-	case screenQueryLog:
+	switch {
+	case a.screen == screenQueryLog:
 		bindings = []key.Binding{a.keys.Up, a.keys.Down, a.keys.QueryLog, a.keys.Back}
+	case a.focus == focusTables:
+		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.Enter, a.keys.SwitchFocus}
+	case a.focus == focusSQL:
+		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.SwitchFocus}
 	default:
 		bindings = a.keys.ShortHelp()
 	}
@@ -285,7 +454,7 @@ func (a *App) renderStatusBar() string {
 func (a *App) renderRowBrowserStatusBar(runningPart string) string {
 	info := style.StatusDesc.Render(a.rowBrowser.StatusLine())
 
-	escDesc := " back"
+	escDesc := " pane 1"
 	if a.rowBrowser.DrillDepth() > 0 {
 		escDesc = " collapse"
 	}
