@@ -37,6 +37,9 @@ const (
 // sqlPaneContentH is the number of content lines in the SQL strip (excludes border and title).
 const sqlPaneContentH = 3
 
+// sqlPaneOuterH is the total rendered height of the SQL pane (border top + title + content + border bottom).
+const sqlPaneOuterH = 1 + sqlPaneContentH + 2
+
 // Config holds the startup configuration passed from cmd/main.go.
 type Config struct {
 	// ConnectionString is the raw DSN supplied via --connection-string.
@@ -122,12 +125,9 @@ func (a *App) contentHeight() int {
 	return h
 }
 
-// sqlPaneOuterH is the rendered height of the SQL pane including its border and title line.
-func (a *App) sqlPaneOuterH() int { return 1 + sqlPaneContentH + 2 } // title + content + top/bottom border
-
 // topSectionOuterH is the height allocated to the left+right panel row.
 func (a *App) topSectionOuterH() int {
-	h := a.contentHeight() - a.sqlPaneOuterH()
+	h := a.contentHeight() - sqlPaneOuterH
 	if h < 4 {
 		h = 4
 	}
@@ -369,14 +369,12 @@ func (a *App) renderSplitContent() string {
 	sw := a.sqlInnerW()
 	sqlH := 1 + sqlPaneContentH // title line + content lines
 
-	// Left pane: table list.
 	leftContent := lipgloss.JoinVertical(lipgloss.Left,
 		a.paneTitle("1 Tables", a.focus == focusTables, lw),
 		a.tableList.View(),
 	)
 	leftBox := paneBorder(a.focus == focusTables).Width(lw).Height(ph).Render(leftContent)
 
-	// Right pane: row browser.
 	rightContent := lipgloss.JoinVertical(lipgloss.Left,
 		a.paneTitle("2 Row Browser", a.focus == focusRowBrowser, rw),
 		a.renderRightPane(),
@@ -385,7 +383,6 @@ func (a *App) renderSplitContent() string {
 
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
 
-	// Bottom pane: SQL log strip (full width).
 	sqlContent := lipgloss.JoinVertical(lipgloss.Left,
 		a.paneTitle("3 SQL", a.focus == focusSQL, sw),
 		a.sqlPane.SetFocused(a.focus == focusSQL).View(),
@@ -435,7 +432,7 @@ func (a *App) renderStatusBar() string {
 	case a.screen == screenQueryLog:
 		bindings = []key.Binding{a.keys.Up, a.keys.Down, a.keys.QueryLog, a.keys.Back}
 	case a.focus == focusTables:
-		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.Enter, a.keys.SwitchFocus}
+		bindings = a.keys.TableListHelp()
 	case a.focus == focusSQL:
 		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.SwitchFocus}
 	default:

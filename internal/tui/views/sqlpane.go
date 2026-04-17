@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/beetio/datacow/internal/core/db"
 	"github.com/beetio/datacow/internal/tui/keys"
@@ -64,7 +63,6 @@ func (m SQLPaneModel) View() string {
 
 	running, history := m.queryLog.Snapshot()
 
-	// Clamp cursor to valid range.
 	maxCursor := len(history) - 1
 	if m.cursor > maxCursor && maxCursor >= 0 {
 		m.cursor = maxCursor
@@ -77,7 +75,6 @@ func (m SQLPaneModel) View() string {
 
 	var lines []string
 
-	// Running queries first (most urgent).
 	for _, e := range running {
 		if len(lines) >= m.height {
 			break
@@ -90,7 +87,6 @@ func (m SQLPaneModel) View() string {
 		lines = append(lines, style.StatusKey.Render(line))
 	}
 
-	// History, most recent first.
 	for i := len(history) - 1; i >= 0; i-- {
 		if len(lines) >= m.height {
 			break
@@ -114,5 +110,5 @@ func (m SQLPaneModel) View() string {
 	}
 
 	content := strings.Join(lines, "\n")
-	return lipgloss.NewStyle().Width(m.width).Height(m.height).Render(content)
+	return style.Content.Width(m.width).Height(m.height).Render(content)
 }
