@@ -12,6 +12,7 @@ type Map struct {
 	RemoveFilter key.Binding
 	Sort         key.Binding
 	Export       key.Binding
+	QueryLog     key.Binding
 	Up           key.Binding
 	Down         key.Binding
 	Left         key.Binding
@@ -52,6 +53,10 @@ func Default() Map {
 		Export: key.NewBinding(
 			key.WithKeys("e"),
 			key.WithHelp("e", "export"),
+		),
+		QueryLog: key.NewBinding(
+			key.WithKeys("L"),
+			key.WithHelp("L", "query log"),
 		),
 		Up: key.NewBinding(
 			key.WithKeys("up", "k"),

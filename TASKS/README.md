@@ -14,6 +14,7 @@ Read `CLAUDE.md` in the repo root before starting any task.
 | M5 | [TUI Table Browser](M5-tui-table-browser.md) ⭐ MVP | M2, M3, M4 | done |
 | M6 | [Filter, Sort, Export](M6-filter-sort-export.md) | M5 | done |
 | M7 | [FK Drill-Down](M7-fk-drilldown.md) | M5 | done |
+| — | [TUI Query Log](tui-query-log.md) | M7 | done |
 | M8 | [HTTP API Server](M8-http-api.md) | M3 | todo |
 | M9 | [Web App](M9-web-app.md) | M8 | todo |
 

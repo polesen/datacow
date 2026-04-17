@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -22,6 +23,7 @@ type screen int
 const (
 	screenTableList screen = iota
 	screenRowBrowser
+	screenQueryLog
 	screenError
 )
 
@@ -36,32 +38,44 @@ type Config struct {
 
 // App is the root Bubble Tea model for Datacow.
 type App struct {
-	cfg        Config
-	keys       keys.Map
-	connLabel  string
-	width      int
-	height     int
-	screen     screen
-	tableList  views.TableListModel
-	rowBrowser views.RowBrowserModel
-	executor   *dataset.Executor
-	exporter   *export.Exporter
-	initErr    error
+	cfg          Config
+	keys         keys.Map
+	connLabel    string
+	width        int
+	height       int
+	screen       screen
+	prevScreen   screen
+	tableList    views.TableListModel
+	rowBrowser   views.RowBrowserModel
+	queryLogView views.QueryLogView
+	executor     *dataset.Executor
+	exporter     *export.Exporter
+	queryLog     *db.QueryLog
+	appSpinner   spinner.Model
+	initErr      error
 }
 
 // New creates a ready-to-run App.
 // If client is nil or connErr is non-nil, the App shows the error screen.
 func New(cfg Config, client db.Client, connErr error) *App {
+	s := spinner.New()
+	s.Spinner = spinner.MiniDot
+
 	a := &App{
-		cfg:       cfg,
-		keys:      keys.Default(),
-		connLabel: parseConnLabel(cfg.ConnectionString),
-		initErr:   connErr,
+		cfg:        cfg,
+		keys:       keys.Default(),
+		connLabel:  parseConnLabel(cfg.ConnectionString),
+		initErr:    connErr,
+		appSpinner: s,
 	}
 
 	if client != nil && connErr == nil {
-		resolver := dataset.NewResolver(client)
-		executor := dataset.NewExecutor(client)
+		queryLog := db.NewQueryLog()
+		lc := db.NewLoggingClient(client, queryLog)
+		resolver := dataset.NewResolver(lc)
+		executor := dataset.NewExecutor(lc)
+		a.queryLog = queryLog
+		a.queryLogView = views.NewQueryLogView(queryLog)
 		a.executor = executor
 		a.exporter = export.NewExporter(executor)
 		a.tableList = views.NewTableListModel(a.keys, resolver, executor)
@@ -75,26 +89,58 @@ func New(cfg Config, client db.Client, connErr error) *App {
 
 // Init implements tea.Model.
 func (a *App) Init() tea.Cmd {
+	cmds := []tea.Cmd{a.appSpinner.Tick}
 	if a.screen == screenTableList {
-		return a.tableList.Init()
+		cmds = append(cmds, a.tableList.Init())
 	}
-	return nil
+	return tea.Batch(cmds...)
 }
 
 // Update implements tea.Model.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// Always advance the app spinner and sync its frame to the query log view.
+	if tickMsg, ok := msg.(spinner.TickMsg); ok {
+		a.appSpinner, cmd = a.appSpinner.Update(tickMsg)
+		a.queryLogView.SetSpinChar(a.appSpinner.View())
+		// Forward spinner tick to active screen too.
+		switch a.screen {
+		case screenTableList:
+			a.tableList, _ = a.tableList.Update(msg)
+		case screenRowBrowser:
+			a.rowBrowser, _ = a.rowBrowser.Update(msg)
+		}
+		return a, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if key.Matches(msg, a.keys.Quit) {
 			return a, tea.Quit
 		}
-		// Open selected table
+
+		// Toggle query log (L key).
+		if key.Matches(msg, a.keys.QueryLog) {
+			if a.screen == screenQueryLog {
+				a.screen = a.prevScreen
+			} else {
+				a.prevScreen = a.screen
+				a.screen = screenQueryLog
+			}
+			return a, nil
+		}
+
+		// Esc from query log returns to previous screen.
+		if a.screen == screenQueryLog && key.Matches(msg, a.keys.Back) {
+			a.screen = a.prevScreen
+			return a, nil
+		}
+
+		// Open selected table.
 		if a.screen == screenTableList && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 			if ds := a.tableList.SelectedDataset(); ds != nil {
 				a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds)
-				// Pre-size the row browser with current dimensions (width-1 for left indent).
 				h := a.contentHeight()
 				a.rowBrowser, _ = a.rowBrowser.Update(tea.WindowSizeMsg{Width: a.width - 1, Height: h})
 				a.screen = screenRowBrowser
@@ -102,7 +148,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
-		// Go back to table list (only when row browser isn't consuming the Back key)
+
+		// Go back to table list (only when row browser isn't consuming the Back key).
 		if a.screen == screenRowBrowser && key.Matches(msg, a.keys.Back) && !a.rowBrowser.NeedsBackKey() {
 			a.screen = screenTableList
 			return a, nil
@@ -112,13 +159,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		h := a.contentHeight()
-		// Subtract 1 from width so sub-views leave room for the left-side indent.
 		inner := tea.WindowSizeMsg{Width: msg.Width - 1, Height: h}
 		switch a.screen {
 		case screenTableList:
 			a.tableList, _ = a.tableList.Update(inner)
 		case screenRowBrowser:
 			a.rowBrowser, _ = a.rowBrowser.Update(inner)
+		case screenQueryLog:
+			a.queryLogView, _ = a.queryLogView.Update(tea.WindowSizeMsg{Width: msg.Width - 1, Height: h})
 		}
 		return a, nil
 	}
@@ -136,6 +184,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.tableList, cmd = a.tableList.Update(msg)
 	case screenRowBrowser:
 		a.rowBrowser, cmd = a.rowBrowser.Update(msg)
+	case screenQueryLog:
+		a.queryLogView, cmd = a.queryLogView.Update(msg)
 	}
 
 	return a, cmd
@@ -185,6 +235,8 @@ func (a *App) renderContent() string {
 		return leftPad.Render(a.tableList.View())
 	case screenRowBrowser:
 		return leftPad.Render(a.rowBrowser.View())
+	case screenQueryLog:
+		return leftPad.Render(a.queryLogView.View())
 	case screenError:
 		var msg string
 		if a.initErr != nil {
@@ -198,23 +250,39 @@ func (a *App) renderContent() string {
 }
 
 func (a *App) renderStatusBar() string {
-	if a.screen == screenRowBrowser && !a.rowBrowser.IsLoading() && a.rowBrowser.Err() == nil {
-		return a.renderRowBrowserStatusBar()
+	// Running query indicator in status bar.
+	var runningPart string
+	if a.queryLog != nil && a.queryLog.RunningCount() > 0 {
+		count := a.queryLog.RunningCount()
+		label := a.queryLog.CurrentLabel()
+		runningPart = style.StatusKey.Render(a.appSpinner.View()) +
+			style.StatusDesc.Render(fmt.Sprintf(" %d running: %s", count, label))
 	}
+
+	if a.screen == screenRowBrowser && !a.rowBrowser.IsLoading() && a.rowBrowser.Err() == nil {
+		return a.renderRowBrowserStatusBar(runningPart)
+	}
+
 	var bindings []key.Binding
-	if a.screen == screenTableList {
+	switch a.screen {
+	case screenTableList:
 		bindings = a.keys.TableListHelp()
-	} else {
+	case screenQueryLog:
+		bindings = []key.Binding{a.keys.Up, a.keys.Down, a.keys.QueryLog, a.keys.Back}
+	default:
 		bindings = a.keys.ShortHelp()
 	}
-	parts := make([]string, 0, len(bindings))
+	parts := make([]string, 0, len(bindings)+1)
+	if runningPart != "" {
+		parts = append(parts, runningPart)
+	}
 	for _, b := range bindings {
 		parts = append(parts, style.StatusKey.Render(b.Help().Key)+style.StatusDesc.Render(" "+b.Help().Desc))
 	}
 	return style.StatusBar.Width(a.width).Render(strings.Join(parts, "  "))
 }
 
-func (a *App) renderRowBrowserStatusBar() string {
+func (a *App) renderRowBrowserStatusBar(runningPart string) string {
 	info := style.StatusDesc.Render(a.rowBrowser.StatusLine())
 
 	escDesc := " back"
@@ -238,12 +306,17 @@ func (a *App) renderRowBrowserStatusBar() string {
 	}
 	right := strings.Join(keyParts, "  ")
 
-	gap := a.width - lipgloss.Width(info) - lipgloss.Width(right) - 2
+	left := info
+	if runningPart != "" {
+		left = runningPart + "  " + info
+	}
+
+	gap := a.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1
 	}
 
-	content := info + strings.Repeat(" ", gap) + right
+	content := left + strings.Repeat(" ", gap) + right
 	return style.StatusBar.Width(a.width).Render(content)
 }
 
