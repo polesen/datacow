@@ -37,6 +37,12 @@ type fksLoadedInternal struct {
 	seq int
 }
 
+// pkColsLoadedInternal carries the primary-key column names for the active table.
+type pkColsLoadedInternal struct {
+	cols []string
+	seq  int
+}
+
 type uiMode int
 
 const (
@@ -60,6 +66,7 @@ type savedLevel struct {
 	ds         dataset.Dataset
 	result     *dataset.QueryResult
 	fks        []db.ForeignKey
+	pkCols     []string
 	colWidths  []int
 	colOffset  int
 	colCursor  int
@@ -80,6 +87,7 @@ type RowBrowserModel struct {
 	colCursor  int
 	rowCursor  int
 	fks        []db.ForeignKey
+	pkCols     []string
 	drillStack []savedLevel
 	drillSeq   int // incremented on each drill/pop; stale async results are discarded
 	spinner    spinner.Model
@@ -122,7 +130,7 @@ func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export
 }
 
 func (m RowBrowserModel) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd())
+	return tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd(), m.loadPKColsCmd())
 }
 
 func (m RowBrowserModel) loadPageCmd(page int) tea.Cmd {
@@ -163,6 +171,23 @@ func (m RowBrowserModel) loadFKsCmd() tea.Cmd {
 			return fksLoadedInternal{fks: nil, seq: seq}
 		}
 		return fksLoadedInternal{fks: fks, seq: seq}
+	}
+}
+
+func (m RowBrowserModel) loadPKColsCmd() tea.Cmd {
+	if m.executor == nil || m.ds.Table == "" {
+		return nil
+	}
+	table := m.ds.Table
+	seq := m.drillSeq
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cols, err := m.executor.PrimaryKeyColumns(ctx, table)
+		if err != nil {
+			return pkColsLoadedInternal{cols: nil, seq: seq}
+		}
+		return pkColsLoadedInternal{cols: cols, seq: seq}
 	}
 }
 
@@ -207,6 +232,13 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 			return m, nil
 		}
 		m.fks = msg.fks
+		return m, nil
+
+	case pkColsLoadedInternal:
+		if msg.seq != m.drillSeq {
+			return m, nil
+		}
+		m.pkCols = msg.cols
 		return m, nil
 
 	case ErrMsg:
@@ -401,6 +433,9 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 
 	case key.Matches(msg, m.keys.Enter):
 		return m.handleDrillDown()
+
+	case key.Matches(msg, m.keys.ViewCell):
+		return m.openCellViewer()
 	}
 	return m, nil
 }
@@ -414,7 +449,7 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 	colName := m.result.Columns[m.colCursor].Name
 	fk := findFK(m.fks, colName)
 	if fk == nil {
-		return m, nil
+		return m.openCellViewer()
 	}
 
 	row := m.result.Rows[m.rowCursor]
@@ -427,6 +462,7 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 		ds:         m.ds,
 		result:     m.result,
 		fks:        m.fks,
+		pkCols:     m.pkCols,
 		colWidths:  m.colWidths,
 		colOffset:  m.colOffset,
 		colCursor:  m.colCursor,
@@ -440,6 +476,7 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 	m.ds = dataset.Dataset{Name: fk.ReferencedTable, Table: fk.ReferencedTable}
 	m.result = nil
 	m.fks = nil
+	m.pkCols = nil
 	m.colWidths = nil
 	m.colOffset = 0
 	m.colCursor = 0
@@ -456,7 +493,46 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 	m.mode = modeNormal
 	m.drillSeq++
 
-	return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd())
+	return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd(), m.loadPKColsCmd())
+}
+
+// openCellViewer builds an OpenCellViewerMsg for the currently selected cell.
+func (m RowBrowserModel) openCellViewer() (RowBrowserModel, tea.Cmd) {
+	if m.result == nil || len(m.result.Rows) == 0 || m.rowCursor >= len(m.result.Rows) {
+		return m, nil
+	}
+	col := m.result.Columns[m.colCursor]
+	row := m.result.Rows[m.rowCursor]
+
+	var pkValues []string
+	var pkDisplayParts []string
+	for _, pkCol := range m.pkCols {
+		if v, ok := row[pkCol]; ok {
+			s := formatCellValue(v)
+			pkValues = append(pkValues, s)
+			pkDisplayParts = append(pkDisplayParts, pkCol+"="+s)
+		}
+	}
+
+	var raw []byte
+	if v := row[col.Name]; v != nil {
+		switch val := v.(type) {
+		case []byte:
+			raw = val
+		default:
+			raw = []byte(formatCellValue(v))
+		}
+	}
+
+	msg := OpenCellViewerMsg{
+		TableName:  m.ds.Name,
+		PKValues:   pkValues,
+		PKDisplay:  strings.Join(pkDisplayParts, ", "),
+		ColumnName: col.Name,
+		ColumnType: col.Type,
+		Raw:        raw,
+	}
+	return m, func() tea.Msg { return msg }
 }
 
 // popDrillStack collapses the most recent drill level and restores the parent state.
@@ -471,6 +547,7 @@ func (m RowBrowserModel) popDrillStack() (RowBrowserModel, tea.Cmd) {
 	m.ds = last.ds
 	m.result = last.result
 	m.fks = last.fks
+	m.pkCols = last.pkCols
 	m.colWidths = last.colWidths
 	m.colOffset = last.colOffset
 	m.colCursor = last.colCursor

@@ -201,6 +201,27 @@ func (e *Executor) ForeignKeys(ctx context.Context, table string) ([]db.ForeignK
 	return e.client.ForeignKeys(ctx, table)
 }
 
+// PrimaryKeyColumns returns the ordered list of primary-key column names for a table.
+// It identifies the PK by looking for an index named "PRIMARY" (MySQL) or ending in "_pkey"
+// (Postgres convention). Falls back to the first unique index if neither is found.
+func (e *Executor) PrimaryKeyColumns(ctx context.Context, table string) ([]string, error) {
+	indexes, err := e.client.Indexes(ctx, table)
+	if err != nil {
+		return nil, err
+	}
+	for _, idx := range indexes {
+		if idx.Name == "PRIMARY" || strings.HasSuffix(idx.Name, "_pkey") {
+			return idx.Columns, nil
+		}
+	}
+	for _, idx := range indexes {
+		if idx.Unique {
+			return idx.Columns, nil
+		}
+	}
+	return nil, nil
+}
+
 // extractCount pulls the _dc_count value from a COUNT(*) result row.
 func extractCount(rows []map[string]any) int64 {
 	if len(rows) == 0 {

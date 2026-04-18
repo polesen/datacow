@@ -25,6 +25,7 @@ const (
 	screenDatasourcePicker screen = iota // datasource selection (multi-datasource mode)
 	screenSplit                          // normal 3-pane split view
 	screenQueryLog                       // full-screen query log overlay
+	screenCellViewer                     // full-screen cell viewer overlay
 	screenError                          // connection failed
 )
 
@@ -76,6 +77,7 @@ type App struct {
 	tableList           views.TableListModel
 	rowBrowser          views.RowBrowserModel
 	rowBrowserReady     bool
+	cellViewer          views.CellViewerModel
 	sqlPane             views.SQLPaneModel
 	queryLogView        views.QueryLogView
 	executor            *dataset.Executor
@@ -352,6 +354,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case views.OpenCellViewerMsg:
+		cv := views.NewCellViewerModel(a.keys, msg)
+		cv, _ = cv.Update(tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
+		a.cellViewer = cv
+		a.screenBeforeOverlay = a.screen
+		a.screen = screenCellViewer
+		return a, nil
+
+	case views.CloseCellViewerMsg:
+		a.screen = a.screenBeforeOverlay
+		return a, nil
+
 	case views.DatasourceSelectMsg:
 		if existing, ok := a.connections[msg.Name]; ok {
 			// Reuse the existing open connection.
@@ -391,6 +405,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.screen == screenQueryLog {
 			a.queryLogView, _ = a.queryLogView.Update(tea.WindowSizeMsg{Width: a.width - 1, Height: a.contentHeight()})
 		}
+		if a.screen == screenCellViewer {
+			a.cellViewer, _ = a.cellViewer.Update(tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
+		}
 		return a, nil
 	}
 
@@ -417,6 +434,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case screenQueryLog:
 		a.queryLogView, cmd = a.queryLogView.Update(msg)
+	case screenCellViewer:
+		a.cellViewer, cmd = a.cellViewer.Update(msg)
 	}
 
 	return a, cmd
@@ -453,6 +472,8 @@ func (a *App) renderContent() string {
 	case screenQueryLog:
 		leftPad := lipgloss.NewStyle().PaddingLeft(1)
 		return leftPad.Render(a.queryLogView.View())
+	case screenCellViewer:
+		return a.renderCellViewer()
 	case screenError:
 		var msg string
 		if a.initErr != nil {
@@ -524,6 +545,12 @@ func (a *App) renderRightPane() string {
 	return a.rowBrowser.View()
 }
 
+func (a *App) renderCellViewer() string {
+	// Cell viewer owns its own border, title, content, and footer.
+	// It receives the full available space and renders exactly that many lines.
+	return a.cellViewer.View()
+}
+
 func (a *App) paneTitle(title string, active bool, width int) string {
 	if active {
 		return style.PanelTitleActive.Width(width).Render(title)
@@ -554,6 +581,8 @@ func (a *App) renderStatusBar() string {
 
 	var bindings []key.Binding
 	switch {
+	case a.screen == screenCellViewer:
+		bindings = []key.Binding{a.keys.Back}
 	case a.screen == screenDatasourcePicker:
 		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.Enter}
 	case a.screen == screenQueryLog:

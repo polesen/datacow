@@ -25,6 +25,7 @@ type Map struct {
 	Back         key.Binding
 	NextPage     key.Binding
 	PrevPage     key.Binding
+	ViewCell     key.Binding
 }
 
 // Default returns the default keybindings.
@@ -109,6 +110,10 @@ func Default() Map {
 		PrevPage: key.NewBinding(
 			key.WithKeys("[", "pgup"),
 			key.WithHelp("[", "prev page"),
+		),
+		ViewCell: key.NewBinding(
+			key.WithKeys("v"),
+			key.WithHelp("v", "view cell"),
 		),
 	}
 }
