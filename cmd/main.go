@@ -52,12 +52,33 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	// Determine active datasource name and connection string.
-	activeDatasource := ""
-	if connStr == "" && len(cfg.Datasources) == 1 {
-		// Exactly one datasource in config — use it automatically.
+	var (
+		client           db.Client
+		connErr          error
+		activeDatasource string
+	)
+
+	switch {
+	case connStr != "":
+		// Explicit connection string — connect immediately, ignore config datasources.
+		client, connErr = db.Connect(connStr)
+		if client != nil {
+			defer func() { _ = client.Close() }()
+		}
+
+	case len(cfg.Datasources) == 1:
+		// Exactly one configured datasource — connect automatically.
 		connStr = cfg.Datasources[0].ConnectionString
 		activeDatasource = cfg.Datasources[0].Name
+		client, connErr = db.Connect(connStr)
+		if client != nil {
+			defer func() { _ = client.Close() }()
+		}
+
+	case len(cfg.Datasources) == 0:
+		connErr = fmt.Errorf("no --connection-string provided")
+
+		// len > 1: multi-datasource mode — TUI handles lazy connection.
 	}
 
 	tuiCfg := tui.Config{
@@ -65,28 +86,18 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		Version:          version,
 		ConfigDatasets:   cfg.Datasets,
 		ActiveDatasource: activeDatasource,
-	}
-
-	var client db.Client
-	var connErr error
-
-	if connStr == "" {
-		connErr = fmt.Errorf("no --connection-string provided")
-	} else {
-		client, connErr = db.Connect(connStr)
-		if client != nil {
-			defer func() { _ = client.Close() }()
-		}
+		Datasources:      cfg.Datasources,
 	}
 
 	app := tui.New(tuiCfg, client, connErr)
+	defer app.Close()
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	_, err = p.Run()
 	return err
 }
 
-// loadConfig loads the config from an explicit path or searches the default locations.
+// loadConfig loads config from an explicit path or searches the default locations.
 func loadConfig(explicitPath string) (*config.Config, error) {
 	if explicitPath != "" {
 		return config.Load(explicitPath)

@@ -22,9 +22,10 @@ import (
 type screen int
 
 const (
-	screenSplit    screen = iota // normal 3-pane split view
-	screenQueryLog               // full-screen query log overlay
-	screenError                  // connection failed
+	screenDatasourcePicker screen = iota // datasource selection (multi-datasource mode)
+	screenSplit                          // normal 3-pane split view
+	screenQueryLog                       // full-screen query log overlay
+	screenError                          // connection failed
 )
 
 type focus int
@@ -54,6 +55,9 @@ type Config struct {
 
 	// ActiveDatasource is the name of the active datasource (empty for --connection-string only).
 	ActiveDatasource string
+
+	// Datasources are all configured datasources, used when showing the picker.
+	Datasources []config.DatasourceConfig
 }
 
 // App is the root Bubble Tea model for Datacow.
@@ -66,6 +70,9 @@ type App struct {
 	screen              screen
 	screenBeforeOverlay screen
 	focus               focus
+	datasourcePicker    views.DatasourceListModel
+	multiDatasource     bool
+	connections         map[string]db.Client
 	tableList           views.TableListModel
 	rowBrowser          views.RowBrowserModel
 	rowBrowserReady     bool
@@ -79,37 +86,76 @@ type App struct {
 }
 
 // New creates a ready-to-run App.
-// If client is nil or connErr is non-nil, the App shows the error screen.
+// If client is nil or connErr is non-nil (and no multi-datasource config), the App shows the error screen.
 func New(cfg Config, client db.Client, connErr error) *App {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
 
 	a := &App{
-		cfg:        cfg,
-		keys:       keys.Default(),
-		connLabel:  parseConnLabel(cfg.ConnectionString),
-		initErr:    connErr,
-		appSpinner: s,
+		cfg:         cfg,
+		keys:        keys.Default(),
+		connLabel:   parseConnLabel(cfg.ConnectionString),
+		initErr:     connErr,
+		appSpinner:  s,
+		connections: make(map[string]db.Client),
 	}
 
-	if client != nil && connErr == nil {
-		queryLog := db.NewQueryLog()
-		lc := db.NewLoggingClient(client, queryLog)
-		resolver := dataset.NewResolver(lc, cfg.ConfigDatasets, cfg.ActiveDatasource)
-		executor := dataset.NewExecutor(lc)
-		a.queryLog = queryLog
-		a.queryLogView = views.NewQueryLogView(queryLog)
-		a.executor = executor
-		a.exporter = export.NewExporter(executor)
-		a.tableList = views.NewTableListModel(a.keys, resolver, executor)
-		a.sqlPane = views.NewSQLPaneModel(a.keys, queryLog)
+	switch {
+	case len(cfg.Datasources) > 1 && client == nil && connErr == nil:
+		// Multi-datasource mode: show the picker first.
+		a.datasourcePicker = views.NewDatasourceListModel(a.keys, cfg.Datasources)
+		a.multiDatasource = true
+		a.connLabel = "select a datasource"
+		a.screen = screenDatasourcePicker
+
+	case client != nil && connErr == nil:
+		// Single connection already established.
+		a.activateConnection(cfg.ActiveDatasource, client)
 		a.screen = screenSplit
 		a.focus = focusTables
-	} else {
+
+	default:
 		a.screen = screenError
 	}
 
 	return a
+}
+
+// activateConnection wires up the executor/resolver/tableList for an open connection.
+func (a *App) activateConnection(name string, client db.Client) {
+	queryLog := db.NewQueryLog()
+	lc := db.NewLoggingClient(client, queryLog)
+	resolver := dataset.NewResolver(lc, a.cfg.ConfigDatasets, name)
+	executor := dataset.NewExecutor(lc)
+	a.queryLog = queryLog
+	a.queryLogView = views.NewQueryLogView(queryLog)
+	a.executor = executor
+	a.exporter = export.NewExporter(executor)
+	a.tableList = views.NewTableListModel(a.keys, resolver, executor)
+	a.sqlPane = views.NewSQLPaneModel(a.keys, queryLog)
+	a.rowBrowserReady = false
+	a.focus = focusTables
+	if name != "" {
+		a.connLabel = name
+	}
+}
+
+// connectCmd fires an async connection attempt and returns the result as a message.
+func (a *App) connectCmd(name, connStr string) tea.Cmd {
+	return func() tea.Msg {
+		client, err := db.Connect(connStr)
+		if err != nil {
+			return views.DatasourceErrorMsg{Name: name, Err: err}
+		}
+		return views.DatasourceConnectedMsg{Name: name, Client: client}
+	}
+}
+
+// Close releases all open database connections managed by the App.
+func (a *App) Close() {
+	for _, client := range a.connections {
+		_ = client.Close()
+	}
 }
 
 // Init implements tea.Model.
@@ -200,7 +246,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Always advance the spinner and sync its frame to the query log view.
 	if tickMsg, ok := msg.(spinner.TickMsg); ok {
 		a.appSpinner, cmd = a.appSpinner.Update(tickMsg)
-		a.queryLogView.SetSpinChar(a.appSpinner.View())
+		if a.queryLog != nil {
+			a.queryLogView.SetSpinChar(a.appSpinner.View())
+		}
 		a.tableList, _ = a.tableList.Update(msg)
 		if a.rowBrowserReady {
 			a.rowBrowser, _ = a.rowBrowser.Update(msg)
@@ -214,25 +262,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 		}
 
-		// Query log overlay toggle — global regardless of focused pane.
-		if key.Matches(msg, a.keys.QueryLog) {
-			if a.screen == screenQueryLog {
-				a.screen = a.screenBeforeOverlay
-			} else {
-				a.screenBeforeOverlay = a.screen
-				a.screen = screenQueryLog
+		// Query log overlay toggle — only available when in split view.
+		if a.screen == screenSplit || a.screen == screenQueryLog {
+			if key.Matches(msg, a.keys.QueryLog) {
+				if a.screen == screenQueryLog {
+					a.screen = a.screenBeforeOverlay
+				} else {
+					a.screenBeforeOverlay = a.screen
+					a.screen = screenQueryLog
+				}
+				return a, nil
 			}
-			return a, nil
-		}
-
-		// Esc closes the query log overlay.
-		if a.screen == screenQueryLog && key.Matches(msg, a.keys.Back) {
-			a.screen = a.screenBeforeOverlay
-			return a, nil
+			if a.screen == screenQueryLog && key.Matches(msg, a.keys.Back) {
+				a.screen = a.screenBeforeOverlay
+				return a, nil
+			}
 		}
 
 		if a.screen == screenSplit {
-			// Number keys switch focus — but not while row browser filter input is active.
 			inFilterInput := a.rowBrowserReady && a.rowBrowser.FilterInputActive()
 			if !inFilterInput {
 				switch msg.String() {
@@ -248,16 +295,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// Tab cycles panes — unless the row browser needs Tab for filter pill navigation.
 			if key.Matches(msg, a.keys.SwitchFocus) {
 				if !a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey() {
 					a.focus = focus((int(a.focus) + 1) % 3)
 					return a, nil
 				}
-				// Fall through: let row browser consume Tab for filter pills.
 			}
 
-			// Enter or Right on the table list opens the selected table in the row browser.
 			if a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 				if ds := a.tableList.SelectedDataset(); ds != nil {
 					a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds)
@@ -284,12 +328,41 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focus = focusTables
 				return a, nil
 			}
+
+			// Esc from table list in multi-datasource mode → back to picker.
+			if a.focus == focusTables && key.Matches(msg, a.keys.Back) && a.multiDatasource {
+				a.screen = screenDatasourcePicker
+				return a, nil
+			}
 		}
+
+	case views.DatasourceSelectMsg:
+		if existing, ok := a.connections[msg.Name]; ok {
+			// Reuse the existing open connection.
+			a.activateConnection(msg.Name, existing)
+			a.screen = screenSplit
+			return a, a.tableList.Init()
+		}
+		// Begin async connect and update picker status.
+		connecting := views.DatasourceConnectingMsg{Name: msg.Name}
+		a.datasourcePicker, _ = a.datasourcePicker.Update(connecting)
+		return a, a.connectCmd(msg.Name, msg.ConnectionString)
+
+	case views.DatasourceConnectedMsg:
+		a.connections[msg.Name] = msg.Client
+		a.datasourcePicker, _ = a.datasourcePicker.Update(msg)
+		a.activateConnection(msg.Name, msg.Client)
+		a.screen = screenSplit
+		return a, a.tableList.Init()
+
+	case views.DatasourceErrorMsg:
+		a.datasourcePicker, _ = a.datasourcePicker.Update(msg)
+		return a, nil
 
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
-		// Always resize all panels — even unfocused ones must be correctly sized.
+		a.datasourcePicker, _ = a.datasourcePicker.Update(tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
 		a.tableList, _ = a.tableList.Update(tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
 		if a.rowBrowserReady {
 			a.rowBrowser, _ = a.rowBrowser.Update(tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()})
@@ -301,8 +374,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// RowCountMsg always goes to the table list to keep the count chain running
-	// even when the user has navigated to another pane.
+	// RowCountMsg always goes to the table list.
 	if _, ok := msg.(views.RowCountMsg); ok {
 		a.tableList, cmd = a.tableList.Update(msg)
 		return a, cmd
@@ -310,6 +382,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Route remaining messages to the active screen/pane.
 	switch a.screen {
+	case screenDatasourcePicker:
+		a.datasourcePicker, cmd = a.datasourcePicker.Update(msg)
 	case screenSplit:
 		switch a.focus {
 		case focusTables:
@@ -352,6 +426,8 @@ func (a *App) renderHeader() string {
 
 func (a *App) renderContent() string {
 	switch a.screen {
+	case screenDatasourcePicker:
+		return a.renderDatasourcePicker()
 	case screenSplit:
 		return a.renderSplitContent()
 	case screenQueryLog:
@@ -367,6 +443,28 @@ func (a *App) renderContent() string {
 		return style.Content.Width(a.width).Height(a.contentHeight()).Render(msg)
 	}
 	return ""
+}
+
+func (a *App) renderDatasourcePicker() string {
+	lw := a.leftInnerW()
+	rw := a.rightInnerW()
+	ph := a.panelInnerH()
+	sw := a.sqlInnerW()
+	sqlH := 1 + sqlPaneContentH
+
+	leftContent := lipgloss.JoinVertical(lipgloss.Left,
+		a.paneTitle("Datasources", true, lw),
+		a.datasourcePicker.View(),
+	)
+	leftBox := paneBorder(true).Width(lw).Height(ph).Render(leftContent)
+
+	hint := style.Muted.Render("\n  Select a datasource\n  to browse its data.")
+	rightBox := paneBorder(false).Width(rw).Height(ph).Render(hint)
+
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
+	sqlBox := paneBorder(false).Width(sw).Height(sqlH).Render("")
+
+	return lipgloss.JoinVertical(lipgloss.Left, topRow, sqlBox)
 }
 
 func (a *App) renderSplitContent() string {
@@ -436,6 +534,8 @@ func (a *App) renderStatusBar() string {
 
 	var bindings []key.Binding
 	switch {
+	case a.screen == screenDatasourcePicker:
+		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.Enter}
 	case a.screen == screenQueryLog:
 		bindings = []key.Binding{a.keys.Up, a.keys.Down, a.keys.QueryLog, a.keys.Back}
 	case a.focus == focusTables:

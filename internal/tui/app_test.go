@@ -9,9 +9,59 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	teatest "github.com/charmbracelet/x/exp/teatest"
 
+	"github.com/beetio/datacow/internal/core/config"
 	"github.com/beetio/datacow/internal/core/db"
 	"github.com/beetio/datacow/internal/tui"
 )
+
+func TestApp_DatasourcePicker_MultiDatasource(t *testing.T) {
+	datasources := []config.DatasourceConfig{
+		{Name: "production", ConnectionString: "postgres://prod/db"},
+		{Name: "staging", ConnectionString: "postgres://staging/db"},
+	}
+	app := tui.New(tui.Config{Version: "test", Datasources: datasources}, nil, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "Datasources") &&
+			strings.Contains(s, "production") &&
+			strings.Contains(s, "staging")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_DatasourcePicker_ConnectAndTransition(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	datasources := []config.DatasourceConfig{
+		{Name: "testdb", ConnectionString: dsn},
+		{Name: "other", ConnectionString: "postgres://other/db"},
+	}
+	app := tui.New(tui.Config{Version: "test", Datasources: datasources}, nil, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	// Wait for picker to appear.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "Datasources")
+	}, teatest.WithDuration(3*time.Second))
+
+	// Press Enter to connect to first datasource.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Should transition to split view after connection.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(10*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
 
 func TestApp_ErrorScreen_NoConnection(t *testing.T) {
 	app := tui.New(tui.Config{Version: "test"}, nil, nil)

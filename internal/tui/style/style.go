@@ -157,3 +157,6 @@ var Muted = lipgloss.NewStyle().Foreground(colorMuted)
 
 // QueryLabel is the dim suffix shown next to custom SQL datasets in the table list.
 var QueryLabel = lipgloss.NewStyle().Foreground(colorMuted).Italic(true)
+
+// StatusConnected styles the "connected" indicator in the datasource list.
+var StatusConnected = lipgloss.NewStyle().Foreground(colorPrimary)
