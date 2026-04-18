@@ -171,7 +171,7 @@ func (a *App) Init() tea.Cmd {
 
 // contentHeight is total lines available between header and status bar.
 func (a *App) contentHeight() int {
-	h := a.height - 3 // header (1) + blank spacer (1) + status bar (1)
+	h := a.height - 2 // header (1) + status bar (1)
 	if h < 0 {
 		h = 0
 	}
@@ -430,7 +430,7 @@ func (a *App) View() string {
 	header := a.renderHeader()
 	statusBar := a.renderStatusBar()
 	content := a.renderContent()
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", content, statusBar)
+	return lipgloss.JoinVertical(lipgloss.Left, header, content, statusBar)
 }
 
 func (a *App) renderHeader() string {
