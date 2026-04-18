@@ -17,6 +17,7 @@ Read `CLAUDE.md` in the repo root before starting any task.
 | [TUI Query Log](tui-query-log.md) | done |
 | [YAML Config + Custom Datasets](yaml-config-datasets.md) | done |
 | [Multi-Datasource TUI](multi-datasource.md) | done |
+| [Cell Viewer + Save to File](cell-viewer.md) | todo |
 
 ## Future Work
 
