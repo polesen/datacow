@@ -352,6 +352,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.connections[msg.Name] = msg.Client
 		a.datasourcePicker, _ = a.datasourcePicker.Update(msg)
 		a.activateConnection(msg.Name, msg.Client)
+		// Push current terminal size into the freshly created components — no
+		// new WindowSizeMsg arrives just because the screen transitions.
+		a.tableList, _ = a.tableList.Update(tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
+		a.sqlPane, _ = a.sqlPane.Update(tea.WindowSizeMsg{Width: a.sqlInnerW(), Height: sqlPaneContentH})
 		a.screen = screenSplit
 		return a, a.tableList.Init()
 
