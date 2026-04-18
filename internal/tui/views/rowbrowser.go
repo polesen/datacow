@@ -70,6 +70,7 @@ type savedLevel struct {
 	colWidths  []int
 	colOffset  int
 	colCursor  int
+	rowOffset  int
 	rowCursor  int
 	filters    []dataset.Filter
 	sort       *dataset.Sort
@@ -85,6 +86,7 @@ type RowBrowserModel struct {
 	colWidths  []int
 	colOffset  int
 	colCursor  int
+	rowOffset  int
 	rowCursor  int
 	fks        []db.ForeignKey
 	pkCols     []string
@@ -195,6 +197,7 @@ func (m RowBrowserModel) applyLoadedResult(r *dataset.QueryResult) RowBrowserMod
 	m.result = r
 	m.loading = false
 	m.rowCursor = 0
+	m.rowOffset = 0
 	m.colWidths = computeColWidths(r.Columns, r.Rows)
 	return m
 }
@@ -407,10 +410,16 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 	case key.Matches(msg, m.keys.Down):
 		if m.rowCursor < len(m.result.Rows)-1 {
 			m.rowCursor++
+			if visible := m.visibleRowCount(); visible > 0 && m.rowCursor >= m.rowOffset+visible {
+				m.rowOffset = m.rowCursor - visible + 1
+			}
 		}
 	case key.Matches(msg, m.keys.Up):
 		if m.rowCursor > 0 {
 			m.rowCursor--
+			if m.rowCursor < m.rowOffset {
+				m.rowOffset = m.rowCursor
+			}
 		}
 
 	case key.Matches(msg, m.keys.Right):
@@ -466,6 +475,7 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 		colWidths:  m.colWidths,
 		colOffset:  m.colOffset,
 		colCursor:  m.colCursor,
+		rowOffset:  m.rowOffset,
 		rowCursor:  m.rowCursor,
 		filters:    m.filters,
 		sort:       m.sort,
@@ -480,6 +490,7 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 	m.colWidths = nil
 	m.colOffset = 0
 	m.colCursor = 0
+	m.rowOffset = 0
 	m.rowCursor = 0
 	m.filters = []dataset.Filter{{
 		Column:   fk.ReferencedColumn,
@@ -551,6 +562,7 @@ func (m RowBrowserModel) popDrillStack() (RowBrowserModel, tea.Cmd) {
 	m.colWidths = last.colWidths
 	m.colOffset = last.colOffset
 	m.colCursor = last.colCursor
+	m.rowOffset = last.rowOffset
 	m.rowCursor = last.rowCursor
 	m.filters = last.filters
 	m.sort = last.sort
@@ -656,6 +668,30 @@ func (m RowBrowserModel) ActiveSort() *dataset.Sort    { return m.sort }
 func (m RowBrowserModel) FilterInputActive() bool      { return m.mode == modeFilterInput }
 func (m RowBrowserModel) FilterPillsActive() bool      { return m.mode == modeFilterPills }
 func (m RowBrowserModel) ExportMenuActive() bool       { return m.mode == modeExportMenu }
+
+// visibleRowCount returns the number of data rows that fit in the table area given
+// the current height, drill-stack, filter pills, and mode bar.
+func (m RowBrowserModel) visibleRowCount() int {
+	if m.height == 0 {
+		return 0
+	}
+	parentLines := 0
+	for _, p := range m.drillStack {
+		if p.result != nil {
+			parentLines += parentLineCount(p) + 1
+		}
+	}
+	filterPillLines := 0
+	if len(m.filters) > 0 {
+		filterPillLines = 1
+	}
+	bottomBarLines := 0
+	if m.mode == modeFilterInput || m.mode == modeExportMenu || m.mode == modeExporting {
+		bottomBarLines = 1
+	}
+	tableHeight := m.height - parentLines - filterPillLines - bottomBarLines
+	return max(0, tableHeight-2) // subtract header + separator rows
+}
 
 // IsFKColumn reports whether the currently selected column is a foreign key.
 func (m RowBrowserModel) IsFKColumn() bool {
@@ -888,19 +924,20 @@ func (m RowBrowserModel) renderTable(height int) string {
 	header := buildHeader(cols, m.colWidths, visible, m.sort, m.colCursor, fkCols)
 	sep := buildSeparator(m.colWidths, visible)
 
-	maxRows := height - 2
-	if maxRows < 0 {
-		maxRows = 0
-	}
+	maxRows := max(0, height-2)
 
 	lines := make([]string, 0, maxRows+2)
 	lines = append(lines, header, sep)
 
-	for i, row := range rows {
+	startRow := m.rowOffset
+	if startRow > len(rows) {
+		startRow = 0
+	}
+	for i, row := range rows[startRow:] {
 		if i >= maxRows {
 			break
 		}
-		lines = append(lines, buildRow(row, cols, m.colWidths, visible, i, m.rowCursor, m.colCursor, fkCols))
+		lines = append(lines, buildRow(row, cols, m.colWidths, visible, startRow+i, m.rowCursor, m.colCursor, fkCols))
 	}
 
 	return strings.Join(lines, "\n")
