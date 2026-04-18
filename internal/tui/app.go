@@ -370,6 +370,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if existing, ok := a.connections[msg.Name]; ok {
 			// Reuse the existing open connection.
 			a.activateConnection(msg.Name, existing)
+			a.tableList, _ = a.tableList.Update(tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
+			a.sqlPane, _ = a.sqlPane.Update(tea.WindowSizeMsg{Width: a.sqlInnerW(), Height: sqlPaneContentH})
 			a.screen = screenSplit
 			return a, a.tableList.Init()
 		}
