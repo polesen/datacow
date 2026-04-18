@@ -490,7 +490,8 @@ func (m TableListModel) View() string {
 		if ln.isHeader {
 			rendered = append(rendered, m.renderHeaderRow(ln.datasetIdx))
 		} else {
-			rendered = append(rendered, style.RowNormal.Width(m.width).Render(ln.sub))
+			sub := runewidth.Truncate(ln.sub, m.width, "")
+			rendered = append(rendered, style.RowNormal.Width(m.width).Render(sub))
 		}
 	}
 
