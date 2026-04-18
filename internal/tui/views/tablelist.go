@@ -12,6 +12,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/beetio/datacow/internal/core/dataset"
+	"github.com/beetio/datacow/internal/core/db"
 	"github.com/beetio/datacow/internal/tui/keys"
 	"github.com/beetio/datacow/internal/tui/style"
 )
@@ -25,11 +26,57 @@ type RowCountMsg struct {
 	Count int64
 }
 
+// ExpansionLoadedMsg carries the columns + FKs for a dataset's expanded view.
+type ExpansionLoadedMsg struct {
+	Idx  int
+	Cols []db.Column
+	FKs  []db.ForeignKey
+	Err  error
+}
+
+// IndexesLoadedMsg carries the indexes for a dataset's expanded view.
+type IndexesLoadedMsg struct {
+	Idx     int
+	Indexes []db.Index
+	Err     error
+}
+
+type indexLoadState int
+
+const (
+	indexIdle indexLoadState = iota
+	indexLoading
+	indexLoaded
+	indexError
+)
+
+type expansionLoadState int
+
+const (
+	expIdle expansionLoadState = iota
+	expLoading
+	expLoaded
+	expError
+)
+
+// treeNode holds the per-dataset expand state and lazily-loaded introspection data.
+type treeNode struct {
+	expanded   bool
+	expState   expansionLoadState
+	expErr     error
+	cols       []db.Column
+	fks        []db.ForeignKey
+	indexState indexLoadState
+	indexErr   error
+	indexes    []db.Index
+}
+
 type TableListModel struct {
 	datasets     []dataset.Dataset
+	tree         []treeNode
 	counts       map[string]int64
 	cursor       int
-	scrollOffset int
+	scrollOffset int // in visible-line space (not dataset-index space)
 	nextCountIdx int
 	spinner      spinner.Model
 	loading      bool
@@ -39,11 +86,12 @@ type TableListModel struct {
 	height       int
 	resolver     *dataset.Resolver
 	executor     *dataset.Executor
+	client       db.Client
 }
 
 // NewTableListModel creates a TableListModel in the initial loading state.
-// resolver and executor may be nil for testing.
-func NewTableListModel(k keys.Map, resolver *dataset.Resolver, executor *dataset.Executor) TableListModel {
+// resolver, executor, and client may be nil for testing.
+func NewTableListModel(k keys.Map, resolver *dataset.Resolver, executor *dataset.Executor, client db.Client) TableListModel {
 	return TableListModel{
 		spinner:  newSpinner(),
 		loading:  true,
@@ -51,6 +99,7 @@ func NewTableListModel(k keys.Map, resolver *dataset.Resolver, executor *dataset
 		counts:   make(map[string]int64),
 		resolver: resolver,
 		executor: executor,
+		client:   client,
 	}
 }
 
@@ -88,6 +137,40 @@ func (m TableListModel) loadRowCountCmd(ds dataset.Dataset) tea.Cmd {
 	}
 }
 
+func (m TableListModel) loadExpansionCmd(idx int, ds dataset.Dataset) tea.Cmd {
+	if m.client == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cols, err := m.client.Describe(ctx, ds.Table)
+		if err != nil {
+			return ExpansionLoadedMsg{Idx: idx, Err: err}
+		}
+		fks, err := m.client.ForeignKeys(ctx, ds.Table)
+		if err != nil {
+			return ExpansionLoadedMsg{Idx: idx, Cols: cols, Err: err}
+		}
+		return ExpansionLoadedMsg{Idx: idx, Cols: cols, FKs: fks}
+	}
+}
+
+func (m TableListModel) loadIndexesCmd(idx int, ds dataset.Dataset) tea.Cmd {
+	if m.client == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		idxs, err := m.client.Indexes(ctx, ds.Table)
+		if err != nil {
+			return IndexesLoadedMsg{Idx: idx, Err: err}
+		}
+		return IndexesLoadedMsg{Idx: idx, Indexes: idxs}
+	}
+}
+
 func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -95,21 +178,22 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.ensureCursorVisible()
 		return m, nil
 
 	case spinner.TickMsg:
-		if m.loading {
+		if m.loading || m.anyLoading() {
 			m.spinner, cmd = m.spinner.Update(msg)
 		}
 		return m, cmd
 
 	case TablesLoadedMsg:
 		m.datasets = []dataset.Dataset(msg)
+		m.tree = make([]treeNode, len(m.datasets))
 		m.loading = false
 		if len(m.datasets) == 0 {
 			return m, nil
 		}
-		// Fire at most 5 concurrent count queries; chain the rest via RowCountMsg.
 		const maxConcurrent = 5
 		limit := min(len(m.datasets), maxConcurrent)
 		cmds := make([]tea.Cmd, limit)
@@ -121,12 +205,40 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 
 	case RowCountMsg:
 		m.counts[msg.Name] = msg.Count
-		// Chain the next pending count if any remain.
 		if m.nextCountIdx < len(m.datasets) {
 			cmd = m.loadRowCountCmd(m.datasets[m.nextCountIdx])
 			m.nextCountIdx++
 		}
 		return m, cmd
+
+	case ExpansionLoadedMsg:
+		if msg.Idx < 0 || msg.Idx >= len(m.tree) {
+			return m, nil
+		}
+		n := &m.tree[msg.Idx]
+		n.cols = msg.Cols
+		n.fks = msg.FKs
+		if msg.Err != nil {
+			n.expState = expError
+			n.expErr = msg.Err
+		} else {
+			n.expState = expLoaded
+		}
+		return m, nil
+
+	case IndexesLoadedMsg:
+		if msg.Idx < 0 || msg.Idx >= len(m.tree) {
+			return m, nil
+		}
+		n := &m.tree[msg.Idx]
+		n.indexes = msg.Indexes
+		if msg.Err != nil {
+			n.indexState = indexError
+			n.indexErr = msg.Err
+		} else {
+			n.indexState = indexLoaded
+		}
+		return m, nil
 
 	case ErrMsg:
 		m.loading = false
@@ -141,22 +253,83 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Up):
 			if m.cursor > 0 {
 				m.cursor--
-				if m.cursor < m.scrollOffset {
-					m.scrollOffset--
-				}
+				m.ensureCursorVisible()
 			}
 		case key.Matches(msg, m.keys.Down):
 			if m.cursor < len(m.datasets)-1 {
 				m.cursor++
-				if m.height > 0 && m.cursor >= m.scrollOffset+m.height {
-					m.scrollOffset++
-				}
+				m.ensureCursorVisible()
+			}
+		case key.Matches(msg, m.keys.Right):
+			if m.FocusedExpandable() && !m.FocusedExpanded() {
+				return m.expandFocused()
+			}
+		case key.Matches(msg, m.keys.Left):
+			if m.FocusedExpanded() {
+				m.tree[m.cursor].expanded = false
+				m.ensureCursorVisible()
 			}
 		}
 		return m, nil
 	}
 
 	return m, nil
+}
+
+// FocusedExpandable reports whether the currently-focused row can be expanded
+// (i.e. is a table or view — not a YAML SQL dataset).
+func (m TableListModel) FocusedExpandable() bool {
+	if m.cursor < 0 || m.cursor >= len(m.datasets) {
+		return false
+	}
+	return m.datasets[m.cursor].Kind != dataset.KindDataset
+}
+
+// FocusedExpanded reports whether the currently-focused row is expanded.
+func (m TableListModel) FocusedExpanded() bool {
+	if m.cursor < 0 || m.cursor >= len(m.tree) {
+		return false
+	}
+	return m.tree[m.cursor].expanded
+}
+
+func (m TableListModel) expandFocused() (TableListModel, tea.Cmd) {
+	idx := m.cursor
+	n := &m.tree[idx]
+	n.expanded = true
+	ds := m.datasets[idx]
+	var cmds []tea.Cmd
+	if n.expState == expIdle {
+		n.expState = expLoading
+		if c := m.loadExpansionCmd(idx, ds); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	// Views don't carry indexes in any meaningful way — skip the lookup.
+	if ds.Kind == dataset.KindView {
+		if n.indexState == indexIdle {
+			n.indexState = indexLoaded
+		}
+	} else if n.indexState == indexIdle {
+		n.indexState = indexLoading
+		if c := m.loadIndexesCmd(idx, ds); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	m.ensureCursorVisible()
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m *TableListModel) anyLoading() bool {
+	for _, n := range m.tree {
+		if n.expState == expLoading || n.indexState == indexLoading {
+			return true
+		}
+	}
+	return false
 }
 
 func (m TableListModel) SelectedDataset() *dataset.Dataset {
@@ -171,6 +344,116 @@ func (m TableListModel) IsLoading() bool   { return m.loading }
 func (m TableListModel) DatasetCount() int { return len(m.datasets) }
 func (m TableListModel) Cursor() int       { return m.cursor }
 func (m TableListModel) Err() error        { return m.err }
+
+// visibleLine describes one rendered line in the list.
+type visibleLine struct {
+	datasetIdx int  // header row for this dataset
+	isHeader   bool // true for the dataset row; false for expanded sub-rows
+	sub        string
+}
+
+// buildLines flattens datasets + tree into a sequence of rendered lines.
+func (m TableListModel) buildLines() []visibleLine {
+	out := make([]visibleLine, 0, len(m.datasets))
+	for i, ds := range m.datasets {
+		out = append(out, visibleLine{datasetIdx: i, isHeader: true})
+		if i >= len(m.tree) || !m.tree[i].expanded {
+			continue
+		}
+		for _, ln := range m.subLines(i, ds) {
+			out = append(out, visibleLine{datasetIdx: i, sub: ln})
+		}
+	}
+	return out
+}
+
+// subLines returns the tree-drawing sub-rows for an expanded dataset.
+func (m TableListModel) subLines(idx int, ds dataset.Dataset) []string {
+	n := m.tree[idx]
+	var lines []string
+
+	// Columns
+	lines = append(lines, "  ├─ Columns")
+	switch n.expState {
+	case expLoading:
+		lines = append(lines, "  │   "+m.spinner.View()+" loading…")
+	case expError:
+		lines = append(lines, "  │   (error)")
+	case expLoaded:
+		if len(n.cols) == 0 {
+			lines = append(lines, "  │   (none)")
+		} else {
+			for _, c := range n.cols {
+				lines = append(lines, "  │   "+formatColumn(c))
+			}
+		}
+	}
+
+	// Indexes (only for tables — views skip this section's body).
+	lines = append(lines, "  ├─ Indexes")
+	if ds.Kind == dataset.KindView {
+		lines = append(lines, "  │   (n/a for views)")
+	} else {
+		switch n.indexState {
+		case indexLoading:
+			lines = append(lines, "  │   "+m.spinner.View()+" loading…")
+		case indexError:
+			lines = append(lines, "  │   (error)")
+		case indexLoaded:
+			if len(n.indexes) == 0 {
+				lines = append(lines, "  │   (none)")
+			} else {
+				for _, ix := range n.indexes {
+					lines = append(lines, "  │   "+formatIndex(ix))
+				}
+			}
+		}
+	}
+
+	// Foreign keys
+	lines = append(lines, "  └─ Foreign Keys")
+	switch n.expState {
+	case expLoaded:
+		if len(n.fks) == 0 {
+			lines = append(lines, "      (none)")
+		} else {
+			for _, fk := range n.fks {
+				lines = append(lines, "      "+formatFK(fk))
+			}
+		}
+	case expError:
+		lines = append(lines, "      (error)")
+	}
+
+	return lines
+}
+
+func (m *TableListModel) ensureCursorVisible() {
+	if m.height <= 0 {
+		m.scrollOffset = 0
+		return
+	}
+	lines := m.buildLines()
+	// Find the line index of the cursor's header row.
+	cursorLine := -1
+	for i, ln := range lines {
+		if ln.isHeader && ln.datasetIdx == m.cursor {
+			cursorLine = i
+			break
+		}
+	}
+	if cursorLine < 0 {
+		return
+	}
+	if cursorLine < m.scrollOffset {
+		m.scrollOffset = cursorLine
+	} else if cursorLine >= m.scrollOffset+m.height {
+		m.scrollOffset = cursorLine - m.height + 1
+	}
+	m.scrollOffset = max(m.scrollOffset, 0)
+	maxOffset := max(len(lines)-m.height, 0)
+	m.scrollOffset = min(m.scrollOffset, maxOffset)
+}
 
 func (m TableListModel) View() string {
 	if m.width == 0 {
@@ -193,31 +476,40 @@ func (m TableListModel) View() string {
 		return style.Content.Width(m.width).Height(m.height).Render("No tables found.")
 	}
 
+	lines := m.buildLines()
 	maxVisible := m.height
 	if maxVisible <= 0 {
-		maxVisible = len(m.datasets)
+		maxVisible = len(lines)
 	}
 
-	lines := make([]string, 0, maxVisible)
-	end := m.scrollOffset + maxVisible
-	if end > len(m.datasets) {
-		end = len(m.datasets)
-	}
+	end := min(m.scrollOffset+maxVisible, len(lines))
+
+	rendered := make([]string, 0, end-m.scrollOffset)
 	for i := m.scrollOffset; i < end; i++ {
-		lines = append(lines, m.renderTableRow(i, m.datasets[i]))
+		ln := lines[i]
+		if ln.isHeader {
+			rendered = append(rendered, m.renderHeaderRow(ln.datasetIdx))
+		} else {
+			rendered = append(rendered, style.RowNormal.Width(m.width).Render(ln.sub))
+		}
 	}
 
 	return style.Content.Width(m.width).Height(m.height).Render(
-		strings.Join(lines, "\n"),
+		strings.Join(rendered, "\n"),
 	)
 }
 
-func (m TableListModel) renderTableRow(i int, ds dataset.Dataset) string {
+func (m TableListModel) renderHeaderRow(i int) string {
+	ds := m.datasets[i]
 	const maxNameWidth = 40
 	const countWidth = 12
 	const margin = 2
-	const queryLabel = "(query)"
-	const queryLabelW = len(queryLabel) + 1 // including leading space
+
+	badge := datasetKindBadge(ds.Kind)
+	var badgeW int
+	if badge != "" {
+		badgeW = runewidth.StringWidth(badge) + 1 // leading space
+	}
 
 	name := runewidth.Truncate(ds.Name, maxNameWidth, "…")
 
@@ -230,36 +522,68 @@ func (m TableListModel) renderTableRow(i int, ds dataset.Dataset) string {
 		}
 	}
 
-	nameWidth := m.width - countWidth - margin*2
-	if nameWidth < 10 {
-		nameWidth = 10
-	}
-	if nameWidth > maxNameWidth {
-		nameWidth = maxNameWidth
-	}
+	nameWidth := min(max(m.width-countWidth-margin*2, 10), maxNameWidth)
 
 	selected := i == m.cursor
+	caret := "  "
+	if m.tree != nil && i < len(m.tree) {
+		switch {
+		case m.tree[i].expanded:
+			caret = "▼ "
+		case ds.Kind == dataset.KindDataset:
+			caret = "  "
+		default:
+			caret = "▶ "
+		}
+	}
 
 	var line string
-	if ds.SQL != "" {
-		// Reserve space for the "(query)" label inside the name column.
-		availNameW := nameWidth - queryLabelW
-		if availNameW < 1 {
-			availNameW = 1
-		}
-		label := " " + style.QueryLabel.Render(queryLabel)
+	if badge != "" {
+		availNameW := max(nameWidth-badgeW, 1)
+		label := " " + style.QueryLabel.Render(badge)
 		if selected {
-			label = " " + queryLabel
+			label = " " + badge
 		}
-		line = "  " + runewidth.FillRight(name, availNameW) + label + fmt.Sprintf("%*s", countWidth, count)
+		line = caret + runewidth.FillRight(name, availNameW) + label + fmt.Sprintf("%*s", countWidth, count)
 	} else {
-		line = "  " + runewidth.FillRight(name, nameWidth) + fmt.Sprintf("%*s", countWidth, count)
+		line = caret + runewidth.FillRight(name, nameWidth) + fmt.Sprintf("%*s", countWidth, count)
 	}
 
 	if selected {
 		return style.RowSelected.Width(m.width).Render(line)
 	}
 	return style.RowNormal.Width(m.width).Render(line)
+}
+
+func datasetKindBadge(k dataset.Kind) string {
+	switch k {
+	case dataset.KindView:
+		return "[view]"
+	case dataset.KindDataset:
+		return "[dataset]"
+	default:
+		return ""
+	}
+}
+
+func formatColumn(c db.Column) string {
+	suffix := ""
+	if !c.Nullable {
+		suffix = "  NN"
+	}
+	return fmt.Sprintf("%-20s %s%s", runewidth.Truncate(c.Name, 20, "…"), c.Type, suffix)
+}
+
+func formatIndex(ix db.Index) string {
+	cols := "(" + strings.Join(ix.Columns, ", ") + ")"
+	if ix.Unique {
+		return fmt.Sprintf("%-20s %s UNIQUE", runewidth.Truncate(ix.Name, 20, "…"), cols)
+	}
+	return fmt.Sprintf("%-20s %s", runewidth.Truncate(ix.Name, 20, "…"), cols)
+}
+
+func formatFK(fk db.ForeignKey) string {
+	return fmt.Sprintf("%s → %s.%s", fk.Column, fk.ReferencedTable, fk.ReferencedColumn)
 }
 
 func formatCount(n int64) string {

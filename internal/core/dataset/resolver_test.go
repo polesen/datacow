@@ -11,25 +11,32 @@ import (
 
 // stubClient is a minimal db.Client stub for resolver unit tests.
 type stubClient struct {
-	tables []string
+	tables []db.TableEntry
 }
 
 func (s *stubClient) Ping(_ context.Context) error                              { return nil }
 func (s *stubClient) Close() error                                              { return nil }
-func (s *stubClient) ListTables(_ context.Context) ([]string, error)            { return s.tables, nil }
+func (s *stubClient) ListTables(_ context.Context) ([]db.TableEntry, error)     { return s.tables, nil }
 func (s *stubClient) Describe(_ context.Context, _ string) ([]db.Column, error) { return nil, nil }
 func (s *stubClient) ForeignKeys(_ context.Context, _ string) ([]db.ForeignKey, error) {
+	return nil, nil
+}
+
+func (s *stubClient) Indexes(_ context.Context, _ string) ([]db.Index, error) {
 	return nil, nil
 }
 
 func (s *stubClient) Query(_ context.Context, _ string, _ ...any) ([]map[string]any, error) {
 	return nil, nil
 }
-func (s *stubClient) Placeholder(n int) string { return "$1" }
+func (s *stubClient) Placeholder(_ int) string { return "$1" }
 
 // TestResolver_NoConfig verifies auto-discovery with no config datasets.
 func TestResolver_NoConfig(t *testing.T) {
-	sc := &stubClient{tables: []string{"users", "orders"}}
+	sc := &stubClient{tables: []db.TableEntry{
+		{Name: "users", Kind: db.KindTable},
+		{Name: "orders", Kind: db.KindView},
+	}}
 	r := dataset.NewResolver(sc, nil, "")
 	datasets, err := r.Resolve(context.Background())
 	if err != nil {
@@ -43,11 +50,37 @@ func TestResolver_NoConfig(t *testing.T) {
 			t.Errorf("auto-discovered dataset %q should have Table set", d.Name)
 		}
 	}
+	if datasets[0].Kind != dataset.KindTable {
+		t.Errorf("users should be KindTable, got %q", datasets[0].Kind)
+	}
+	if datasets[1].Kind != dataset.KindView {
+		t.Errorf("orders should be KindView, got %q", datasets[1].Kind)
+	}
+}
+
+// TestResolver_YAMLKinds verifies config-defined datasets get the right Kind.
+func TestResolver_YAMLKinds(t *testing.T) {
+	sc := &stubClient{}
+	cfgDatasets := []config.DatasetConfig{
+		{Name: "custom", SQL: "SELECT 1"},
+		{Name: "ref", Table: "users"},
+	}
+	r := dataset.NewResolver(sc, cfgDatasets, "")
+	datasets, err := r.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if datasets[0].Kind != dataset.KindDataset {
+		t.Errorf("SQL dataset should be KindDataset, got %q", datasets[0].Kind)
+	}
+	if datasets[1].Kind != dataset.KindTable {
+		t.Errorf("table-ref dataset should be KindTable, got %q", datasets[1].Kind)
+	}
 }
 
 // TestResolver_ConfigMerged verifies config datasets are appended after auto-discovered.
 func TestResolver_ConfigMerged(t *testing.T) {
-	sc := &stubClient{tables: []string{"users"}}
+	sc := &stubClient{tables: []db.TableEntry{{Name: "users", Kind: db.KindTable}}}
 	cfgDatasets := []config.DatasetConfig{
 		{Name: "recent_signups", SQL: "SELECT id FROM users LIMIT 10"},
 		{Name: "Products", Table: "products"},
@@ -74,7 +107,7 @@ func TestResolver_ConfigMerged(t *testing.T) {
 
 // TestResolver_ScopedFiltered verifies scoped datasets only appear for matching datasource.
 func TestResolver_ScopedFiltered(t *testing.T) {
-	sc := &stubClient{tables: []string{"orders"}}
+	sc := &stubClient{tables: []db.TableEntry{{Name: "orders", Kind: db.KindTable}}}
 	cfgDatasets := []config.DatasetConfig{
 		{Name: "active_orders", Datasource: "production", SQL: "SELECT id FROM orders"},
 		{Name: "all_orders", SQL: "SELECT id FROM orders"},

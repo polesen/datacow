@@ -20,11 +20,11 @@ func (c *LoggingClient) Ping(ctx context.Context) error {
 	return c.inner.Ping(ctx)
 }
 
-func (c *LoggingClient) ListTables(ctx context.Context) ([]string, error) {
+func (c *LoggingClient) ListTables(ctx context.Context) ([]TableEntry, error) {
 	id := c.log.begin("list tables", "", QueryKindSystem)
-	tables, err := c.inner.ListTables(ctx)
-	c.log.end(id, int64(len(tables)), err)
-	return tables, err
+	entries, err := c.inner.ListTables(ctx)
+	c.log.end(id, int64(len(entries)), err)
+	return entries, err
 }
 
 func (c *LoggingClient) Describe(ctx context.Context, table string) ([]Column, error) {
@@ -39,6 +39,13 @@ func (c *LoggingClient) ForeignKeys(ctx context.Context, table string) ([]Foreig
 	fks, err := c.inner.ForeignKeys(ctx, table)
 	c.log.end(id, int64(len(fks)), err)
 	return fks, err
+}
+
+func (c *LoggingClient) Indexes(ctx context.Context, table string) ([]Index, error) {
+	id := c.log.begin("indexes "+table, "", QueryKindSystem)
+	idx, err := c.inner.Indexes(ctx, table)
+	c.log.end(id, int64(len(idx)), err)
+	return idx, err
 }
 
 func (c *LoggingClient) Query(ctx context.Context, sql string, args ...any) ([]map[string]any, error) {

@@ -28,20 +28,31 @@ func NewResolver(client db.Client, configDatasets []config.DatasetConfig, active
 
 // Resolve returns auto-discovered table datasets followed by config-defined datasets.
 func (r *Resolver) Resolve(ctx context.Context) ([]Dataset, error) {
-	tables, err := r.client.ListTables(ctx)
+	entries, err := r.client.ListTables(ctx)
 	if err != nil {
 		return nil, err
 	}
-	datasets := make([]Dataset, len(tables))
-	for i, t := range tables {
-		datasets[i] = Dataset{Name: t, Table: t}
+	datasets := make([]Dataset, len(entries))
+	for i, e := range entries {
+		datasets[i] = Dataset{Name: e.Name, Table: e.Name, Kind: kindFromTableKind(e.Kind)}
 	}
 	for _, cd := range r.configDatasets {
 		// Skip datasets scoped to a different datasource.
 		if cd.Datasource != "" && cd.Datasource != r.activeDatasourceName {
 			continue
 		}
-		datasets = append(datasets, Dataset{Name: cd.Name, Table: cd.Table, SQL: cd.SQL})
+		k := KindTable
+		if cd.SQL != "" {
+			k = KindDataset
+		}
+		datasets = append(datasets, Dataset{Name: cd.Name, Table: cd.Table, SQL: cd.SQL, Kind: k})
 	}
 	return datasets, nil
+}
+
+func kindFromTableKind(k db.TableKind) Kind {
+	if k == db.KindView {
+		return KindView
+	}
+	return KindTable
 }

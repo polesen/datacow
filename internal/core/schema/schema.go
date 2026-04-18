@@ -6,32 +6,34 @@ import (
 	"github.com/beetio/datacow/internal/core/db"
 )
 
-// Table holds the complete schema for a single table.
+// Table holds the complete schema for a single table or view.
 type Table struct {
 	Name        string
+	Kind        db.TableKind
 	Columns     []db.Column
 	ForeignKeys []db.ForeignKey
 }
 
 // Load returns schema information for every table in the database.
 func Load(ctx context.Context, client db.Client) ([]Table, error) {
-	names, err := client.ListTables(ctx)
+	entries, err := client.ListTables(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	tables := make([]Table, 0, len(names))
-	for _, name := range names {
-		cols, err := client.Describe(ctx, name)
+	tables := make([]Table, 0, len(entries))
+	for _, e := range entries {
+		cols, err := client.Describe(ctx, e.Name)
 		if err != nil {
 			return nil, err
 		}
-		fks, err := client.ForeignKeys(ctx, name)
+		fks, err := client.ForeignKeys(ctx, e.Name)
 		if err != nil {
 			return nil, err
 		}
 		tables = append(tables, Table{
-			Name:        name,
+			Name:        e.Name,
+			Kind:        e.Kind,
 			Columns:     cols,
 			ForeignKeys: fks,
 		})

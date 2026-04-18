@@ -131,7 +131,7 @@ func (a *App) activateConnection(name string, client db.Client) {
 	a.queryLogView = views.NewQueryLogView(queryLog)
 	a.executor = executor
 	a.exporter = export.NewExporter(executor)
-	a.tableList = views.NewTableListModel(a.keys, resolver, executor)
+	a.tableList = views.NewTableListModel(a.keys, resolver, executor, lc)
 	a.sqlPane = views.NewSQLPaneModel(a.keys, queryLog)
 	a.rowBrowserReady = false
 	a.focus = focusTables
@@ -300,6 +300,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.focus = focus((int(a.focus) + 1) % 3)
 					return a, nil
 				}
+			}
+
+			// Right on a collapsed, expandable table-list row expands the tree
+			// instead of drilling; Right on an already-expanded row (or Enter)
+			// drills into the row browser.
+			if a.focus == focusTables && key.Matches(msg, a.keys.Right) &&
+				a.tableList.FocusedExpandable() && !a.tableList.FocusedExpanded() {
+				a.tableList, cmd = a.tableList.Update(msg)
+				return a, cmd
+			}
+			// Left on an expanded row collapses the tree — intercept before
+			// the row-browser focus-shift logic below (which ignores Left on
+			// focusTables anyway, but keep this explicit).
+			if a.focus == focusTables && key.Matches(msg, a.keys.Left) && a.tableList.FocusedExpanded() {
+				a.tableList, cmd = a.tableList.Update(msg)
+				return a, cmd
 			}
 
 			if a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {

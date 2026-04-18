@@ -6,7 +6,6 @@ Read `CLAUDE.md` in the repo root before starting any task.
 ## Up Next
 
 - [Cell Viewer + Save to File](cell-viewer.md)
-- [Schema Explorer Tree](schema-explorer.md)
 
 ## Done
 
@@ -21,6 +20,7 @@ Read `CLAUDE.md` in the repo root before starting any task.
 - [TUI Query Log](done/tui-query-log.md)
 - [YAML Config + Custom Datasets](done/yaml-config-datasets.md)
 - [Multi-Datasource TUI](done/multi-datasource.md)
+- [Schema Explorer Tree](done/schema-explorer.md)
 
 ## Future Work
 

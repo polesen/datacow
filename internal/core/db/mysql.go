@@ -24,9 +24,9 @@ func (c *mysqlClient) Ping(ctx context.Context) error {
 	return c.db.PingContext(ctx)
 }
 
-func (c *mysqlClient) ListTables(ctx context.Context) ([]string, error) {
+func (c *mysqlClient) ListTables(ctx context.Context) ([]TableEntry, error) {
 	rows, err := c.db.QueryContext(ctx, `
-		SELECT TABLE_NAME
+		SELECT TABLE_NAME, TABLE_TYPE
 		FROM information_schema.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		  AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
@@ -37,15 +37,63 @@ func (c *mysqlClient) ListTables(ctx context.Context) ([]string, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	var tables []string
+	var entries []TableEntry
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var name, tableType string
+		if err := rows.Scan(&name, &tableType); err != nil {
 			return nil, err
 		}
-		tables = append(tables, name)
+		kind := KindTable
+		if tableType == "VIEW" {
+			kind = KindView
+		}
+		entries = append(entries, TableEntry{Name: name, Kind: kind})
 	}
-	return tables, rows.Err()
+	return entries, rows.Err()
+}
+
+func (c *mysqlClient) Indexes(ctx context.Context, table string) ([]Index, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT INDEX_NAME, NON_UNIQUE, COLUMN_NAME
+		FROM information_schema.STATISTICS
+		WHERE TABLE_SCHEMA = DATABASE()
+		  AND TABLE_NAME   = ?
+		ORDER BY INDEX_NAME, SEQ_IN_INDEX
+	`, table)
+	if err != nil {
+		return nil, fmt.Errorf("indexes %s: %w", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type partial struct {
+		unique bool
+		cols   []string
+	}
+	byName := map[string]*partial{}
+	var order []string
+	for rows.Next() {
+		var name, col string
+		var nonUnique int
+		if err := rows.Scan(&name, &nonUnique, &col); err != nil {
+			return nil, err
+		}
+		p, ok := byName[name]
+		if !ok {
+			p = &partial{unique: nonUnique == 0}
+			byName[name] = p
+			order = append(order, name)
+		}
+		p.cols = append(p.cols, col)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]Index, 0, len(order))
+	for _, name := range order {
+		p := byName[name]
+		out = append(out, Index{Name: name, Columns: p.cols, Unique: p.unique})
+	}
+	return out, nil
 }
 
 func (c *mysqlClient) Describe(ctx context.Context, table string) ([]Column, error) {

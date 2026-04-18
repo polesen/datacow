@@ -25,9 +25,9 @@ func (c *postgresClient) Ping(ctx context.Context) error {
 	return c.db.PingContext(ctx)
 }
 
-func (c *postgresClient) ListTables(ctx context.Context) ([]string, error) {
+func (c *postgresClient) ListTables(ctx context.Context) ([]TableEntry, error) {
 	rows, err := c.db.QueryContext(ctx, `
-		SELECT table_name
+		SELECT table_name, table_type
 		FROM information_schema.tables
 		WHERE table_schema = 'public'
 		  AND table_type IN ('BASE TABLE', 'VIEW')
@@ -38,15 +38,72 @@ func (c *postgresClient) ListTables(ctx context.Context) ([]string, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	var tables []string
+	var entries []TableEntry
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var name, tableType string
+		if err := rows.Scan(&name, &tableType); err != nil {
 			return nil, err
 		}
-		tables = append(tables, name)
+		kind := KindTable
+		if tableType == "VIEW" {
+			kind = KindView
+		}
+		entries = append(entries, TableEntry{Name: name, Kind: kind})
 	}
-	return tables, rows.Err()
+	return entries, rows.Err()
+}
+
+func (c *postgresClient) Indexes(ctx context.Context, table string) ([]Index, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT
+			i.relname                       AS index_name,
+			ix.indisunique                  AS is_unique,
+			a.attname                       AS column_name,
+			array_position(ix.indkey, a.attnum) AS ord
+		FROM pg_class t
+		JOIN pg_namespace n  ON n.oid = t.relnamespace
+		JOIN pg_index ix     ON ix.indrelid = t.oid
+		JOIN pg_class i      ON i.oid = ix.indexrelid
+		JOIN pg_attribute a  ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+		WHERE n.nspname = 'public'
+		  AND t.relname = $1
+		ORDER BY i.relname, ord
+	`, table)
+	if err != nil {
+		return nil, fmt.Errorf("indexes %s: %w", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type partial struct {
+		unique bool
+		cols   []string
+	}
+	byName := map[string]*partial{}
+	var order []string
+	for rows.Next() {
+		var name, col string
+		var unique bool
+		var ord int
+		if err := rows.Scan(&name, &unique, &col, &ord); err != nil {
+			return nil, err
+		}
+		p, ok := byName[name]
+		if !ok {
+			p = &partial{unique: unique}
+			byName[name] = p
+			order = append(order, name)
+		}
+		p.cols = append(p.cols, col)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]Index, 0, len(order))
+	for _, name := range order {
+		p := byName[name]
+		out = append(out, Index{Name: name, Columns: p.cols, Unique: p.unique})
+	}
+	return out, nil
 }
 
 func (c *postgresClient) Describe(ctx context.Context, table string) ([]Column, error) {

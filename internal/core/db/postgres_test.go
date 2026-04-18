@@ -61,12 +61,65 @@ func TestPostgres_SchemaIntrospection(t *testing.T) {
 	})
 
 	t.Run("ListTables", func(t *testing.T) {
-		tables, err := client.ListTables(ctx)
+		entries, err := client.ListTables(ctx)
 		if err != nil {
 			t.Fatalf("ListTables: %v", err)
 		}
-		assertContains(t, tables, "dc_customers")
-		assertContains(t, tables, "dc_orders")
+		names := tableEntryNames(entries)
+		assertContains(t, names, "dc_customers")
+		assertContains(t, names, "dc_orders")
+		got := findTableEntry(entries, "dc_customers")
+		if got == nil || got.Kind != db.KindTable {
+			t.Errorf("dc_customers: got %+v, want KindTable", got)
+		}
+	})
+
+	t.Run("ListTables_View", func(t *testing.T) {
+		if _, err := queryExec(ctx, client, "DROP VIEW IF EXISTS dc_active_customers"); err != nil {
+			t.Fatalf("drop view: %v", err)
+		}
+		if _, err := queryExec(ctx, client, "CREATE VIEW dc_active_customers AS SELECT * FROM dc_customers"); err != nil {
+			t.Fatalf("create view: %v", err)
+		}
+		t.Cleanup(func() {
+			queryExec(ctx, client, "DROP VIEW IF EXISTS dc_active_customers") //nolint:errcheck
+		})
+		entries, err := client.ListTables(ctx)
+		if err != nil {
+			t.Fatalf("ListTables: %v", err)
+		}
+		got := findTableEntry(entries, "dc_active_customers")
+		if got == nil || got.Kind != db.KindView {
+			t.Errorf("dc_active_customers: got %+v, want KindView", got)
+		}
+	})
+
+	t.Run("Indexes", func(t *testing.T) {
+		if _, err := queryExec(ctx, client, "CREATE UNIQUE INDEX dc_customers_email_idx ON dc_customers(email)"); err != nil {
+			t.Fatalf("create index: %v", err)
+		}
+		t.Cleanup(func() {
+			queryExec(ctx, client, "DROP INDEX IF EXISTS dc_customers_email_idx") //nolint:errcheck
+		})
+		idx, err := client.Indexes(ctx, "dc_customers")
+		if err != nil {
+			t.Fatalf("Indexes: %v", err)
+		}
+		var found *db.Index
+		for i := range idx {
+			if idx[i].Name == "dc_customers_email_idx" {
+				found = &idx[i]
+			}
+		}
+		if found == nil {
+			t.Fatalf("dc_customers_email_idx not in %+v", idx)
+		}
+		if !found.Unique {
+			t.Error("expected unique index")
+		}
+		if len(found.Columns) != 1 || found.Columns[0] != "email" {
+			t.Errorf("columns: got %v, want [email]", found.Columns)
+		}
 	})
 
 	t.Run("Describe", func(t *testing.T) {

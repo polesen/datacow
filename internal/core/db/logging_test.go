@@ -8,14 +8,15 @@ import (
 
 // stubClient is a minimal db.Client for testing LoggingClient.
 type stubClient struct {
-	tables []string
-	cols   []Column
-	fks    []ForeignKey
-	rows   []map[string]any
+	tables  []TableEntry
+	cols    []Column
+	fks     []ForeignKey
+	indexes []Index
+	rows    []map[string]any
 }
 
 func (s *stubClient) Ping(_ context.Context) error { return nil }
-func (s *stubClient) ListTables(_ context.Context) ([]string, error) {
+func (s *stubClient) ListTables(_ context.Context) ([]TableEntry, error) {
 	return s.tables, nil
 }
 
@@ -27,6 +28,10 @@ func (s *stubClient) ForeignKeys(_ context.Context, _ string) ([]ForeignKey, err
 	return s.fks, nil
 }
 
+func (s *stubClient) Indexes(_ context.Context, _ string) ([]Index, error) {
+	return s.indexes, nil
+}
+
 func (s *stubClient) Query(_ context.Context, _ string, _ ...any) ([]map[string]any, error) {
 	return s.rows, nil
 }
@@ -34,7 +39,11 @@ func (s *stubClient) Placeholder(n int) string { return fmt.Sprintf("$%d", n) }
 func (s *stubClient) Close() error             { return nil }
 
 func TestLoggingClient_ListTables(t *testing.T) {
-	stub := &stubClient{tables: []string{"orders", "users", "products"}}
+	stub := &stubClient{tables: []TableEntry{
+		{Name: "orders", Kind: KindTable},
+		{Name: "users", Kind: KindTable},
+		{Name: "products", Kind: KindView},
+	}}
 	ql := NewQueryLog()
 	lc := NewLoggingClient(stub, ql)
 

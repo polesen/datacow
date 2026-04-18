@@ -2,11 +2,21 @@ package dataset
 
 import "github.com/beetio/datacow/internal/core/db"
 
+// Kind classifies a Dataset by its underlying object type.
+type Kind string
+
+const (
+	KindTable   Kind = "table"   // auto-discovered or YAML-referenced base table
+	KindView    Kind = "view"    // auto-discovered database view
+	KindDataset Kind = "dataset" // YAML-defined custom SQL query
+)
+
 // Dataset represents a named view of data — either a plain table or a saved SQL query.
 type Dataset struct {
 	Name  string
 	Table string // set for auto-discovered or named table datasets
 	SQL   string // set for custom SQL query datasets
+	Kind  Kind
 }
 
 // QueryOptions controls pagination, filtering, and sorting for a dataset query.
