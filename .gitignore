@@ -17,7 +17,7 @@ node_modules/
 # Test
 *.test
 coverage.out
-.claude/
+.claude/settings.local.json
 
 # Local-only context (competitive positioning, business model)
 CONTEXT.local.md

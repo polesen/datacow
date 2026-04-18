@@ -171,7 +171,7 @@ The following tools are installed and should be used actively:
 | `staticcheck` | Run after lint for deeper static analysis: `staticcheck ./...` |
 | `dlv` | Debug unexpected behaviour instead of adding print statements: `dlv test ./path/to/pkg` |
 | `gotestsum` | Always use instead of `go test`: `gotestsum --format testdox ./...` |
-| `gofumpt` | Format code after editing: `gofumpt -w .` |
+| `gofumpt` | Runs automatically via hook after every Go file edit. |
 | `gomodifytags` | Add or edit struct tags: `gomodifytags -file foo.go -struct Foo -add-tags json` |
 | `psql` | Connect to Postgres directly: `psql $TEST_POSTGRES_DSN` |
 | `mysql` | Connect to MySQL directly: `mysql -h mysql -u datacow -pdatacow datacow_test` |
@@ -225,23 +225,16 @@ Each task runs on its own feature branch (`task/M3-dataset-layer` etc.), created
 
 ## Definition of Done
 
-Before considering any task complete, always run these checks and ensure they all pass:
+Before considering any task complete, invoke the `/done` skill. It runs all checks in sequence:
 
-```bash
-go build ./...                        # must compile cleanly
-make wait-for-db                      # ensure Postgres and MySQL are ready
-gotestsum --format testdox ./...      # all tests must pass
-make lint                             # zero lint issues
-staticcheck ./...                     # deeper static analysis
-```
+- `go build ./...` — must compile cleanly
+- `make wait-for-db` — ensure Postgres and MySQL are ready
+- `gotestsum --format testdox ./...` — all tests must pass
+- `make lint` — zero lint issues
+- `staticcheck ./...` — deeper static analysis
+- SQL injection scan — grep for `fmt.Sprintf` or string concatenation in SQL context; confirm all external input uses `$1`/`?` placeholders and dynamic identifiers are whitelist-validated
 
-Then do a **security review** of all code written or modified in the task:
-- Grep for any string concatenation or `fmt.Sprintf` that touches SQL: `grep -n "fmt.Sprintf\|+.*SELECT\|+.*WHERE\|+.*FROM" **/*.go`
-- Confirm every query that accepts external input uses parameterized placeholders (`$1`, `?`)
-- Confirm dynamic table/column names are validated against a schema whitelist before use
-- Flag and fix any injection vector found before marking the task done
-
-Do not mark a task done if any of the above checks fail or any injection vector is found.
+Do not mark a task done if any check fails or any injection vector is found.
 
 ## Conventions
 
