@@ -154,3 +154,6 @@ var PanelTitleInactive = lipgloss.NewStyle().
 
 // Muted renders dimmed helper text.
 var Muted = lipgloss.NewStyle().Foreground(colorMuted)
+
+// QueryLabel is the dim suffix shown next to custom SQL datasets in the table list.
+var QueryLabel = lipgloss.NewStyle().Foreground(colorMuted).Italic(true)

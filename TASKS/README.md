@@ -15,7 +15,7 @@ Read `CLAUDE.md` in the repo root before starting any task.
 | [Filter, Sort, Export](filter-sort-export.md) | done |
 | [FK Drill-Down](fk-drilldown.md) | done |
 | [TUI Query Log](tui-query-log.md) | done |
-| [YAML Config + Custom Datasets](yaml-config-datasets.md) | todo |
+| [YAML Config + Custom Datasets](yaml-config-datasets.md) | done |
 | [Multi-Datasource TUI](multi-datasource.md) | todo |
 
 ## Future Work

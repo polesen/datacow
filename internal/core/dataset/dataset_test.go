@@ -105,7 +105,7 @@ func setupMySQL(t *testing.T, client db.Client) {
 func runResolverTests(t *testing.T, client db.Client) {
 	t.Helper()
 	ctx := context.Background()
-	resolver := dataset.NewResolver(client)
+	resolver := dataset.NewResolver(client, nil, "")
 
 	t.Run("Resolve_includes_table", func(t *testing.T) {
 		datasets, err := resolver.Resolve(ctx)

@@ -216,6 +216,8 @@ func (m TableListModel) renderTableRow(i int, ds dataset.Dataset) string {
 	const maxNameWidth = 40
 	const countWidth = 12
 	const margin = 2
+	const queryLabel = "(query)"
+	const queryLabelW = len(queryLabel) + 1 // including leading space
 
 	name := runewidth.Truncate(ds.Name, maxNameWidth, "…")
 
@@ -236,9 +238,25 @@ func (m TableListModel) renderTableRow(i int, ds dataset.Dataset) string {
 		nameWidth = maxNameWidth
 	}
 
-	line := "  " + runewidth.FillRight(name, nameWidth) + fmt.Sprintf("%*s", countWidth, count)
+	selected := i == m.cursor
 
-	if i == m.cursor {
+	var line string
+	if ds.SQL != "" {
+		// Reserve space for the "(query)" label inside the name column.
+		availNameW := nameWidth - queryLabelW
+		if availNameW < 1 {
+			availNameW = 1
+		}
+		label := " " + style.QueryLabel.Render(queryLabel)
+		if selected {
+			label = " " + queryLabel
+		}
+		line = "  " + runewidth.FillRight(name, availNameW) + label + fmt.Sprintf("%*s", countWidth, count)
+	} else {
+		line = "  " + runewidth.FillRight(name, nameWidth) + fmt.Sprintf("%*s", countWidth, count)
+	}
+
+	if selected {
 		return style.RowSelected.Width(m.width).Render(line)
 	}
 	return style.RowNormal.Width(m.width).Render(line)

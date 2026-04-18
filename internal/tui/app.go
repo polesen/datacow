@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/beetio/datacow/internal/core/config"
 	"github.com/beetio/datacow/internal/core/dataset"
 	"github.com/beetio/datacow/internal/core/db"
 	"github.com/beetio/datacow/internal/core/export"
@@ -47,6 +48,12 @@ type Config struct {
 
 	// Version is the binary version string (e.g. "0.1.0-dev").
 	Version string
+
+	// ConfigDatasets are datasets loaded from the config file.
+	ConfigDatasets []config.DatasetConfig
+
+	// ActiveDatasource is the name of the active datasource (empty for --connection-string only).
+	ActiveDatasource string
 }
 
 // App is the root Bubble Tea model for Datacow.
@@ -88,7 +95,7 @@ func New(cfg Config, client db.Client, connErr error) *App {
 	if client != nil && connErr == nil {
 		queryLog := db.NewQueryLog()
 		lc := db.NewLoggingClient(client, queryLog)
-		resolver := dataset.NewResolver(lc)
+		resolver := dataset.NewResolver(lc, cfg.ConfigDatasets, cfg.ActiveDatasource)
 		executor := dataset.NewExecutor(lc)
 		a.queryLog = queryLog
 		a.queryLogView = views.NewQueryLogView(queryLog)
