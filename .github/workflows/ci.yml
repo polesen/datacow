@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: datacow
+          POSTGRES_PASSWORD: datacow
+          POSTGRES_DB: datacow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U datacow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_USER: datacow
+          MYSQL_PASSWORD: datacow
+          MYSQL_DATABASE: datacow
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -u root -proot --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_POSTGRES_DSN: postgres://datacow:datacow@127.0.0.1:5432/datacow?sslmode=disable
+      TEST_MYSQL_DSN: datacow:datacow@tcp(127.0.0.1:3306)/datacow
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install tools
+        run: |
+          go install gotest.tools/gotestsum@latest
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+
+      - name: Build
+        run: go build ./...
+
+      - name: Lint
+        run: make lint
+
+      - name: Staticcheck
+        run: staticcheck ./...
+
+      - name: Test
+        run: make test

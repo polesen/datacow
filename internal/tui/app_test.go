@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -178,14 +179,21 @@ func TestApp_TableList_WithRealDB(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
+	ctx := context.Background()
+	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS tui_test_items (id SERIAL PRIMARY KEY, name TEXT)"); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS tui_test_items")
+	})
+
 	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
 	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
 
-	// Wait for at least one table name to appear (tables load async).
+	// Wait for the fixture table to appear in the table list (tables load async).
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
-		// The DB used in tests has tables like ds_products, sc_categories, etc.
-		return strings.Contains(s, "_") && !strings.Contains(s, "Connecting")
+		return strings.Contains(s, "tui_test_items") && !strings.Contains(s, "Connecting")
 	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
 
 	_ = tm.Quit()
