@@ -62,8 +62,8 @@ jobs:
       - name: Lint
         run: make lint
 
-      - name: Test
-        run: make test
-
       - name: Staticcheck
         run: staticcheck ./...
+
+      - name: Test
+        run: make test
