@@ -121,7 +121,7 @@ Early development. Core TUI is functional and usable against PostgreSQL and MySQ
 
 **Planned:** HTTP API, web app, natural language filtering via LLM.
 
-This project is developed with AI assistance (Claude Code).
+This project is developed with AI assistance.
 
 ---
 
