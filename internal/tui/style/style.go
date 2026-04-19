@@ -143,14 +143,20 @@ var PanelInactive = lipgloss.NewStyle().
 	Border(lipgloss.RoundedBorder()).
 	BorderForeground(colorBorder)
 
-// PanelTitleActive styles the title line inside a focused pane.
+// PanelTitleActive styles the title embedded in the border of a focused pane.
 var PanelTitleActive = lipgloss.NewStyle().
 	Foreground(colorPrimary).
 	Bold(true)
 
-// PanelTitleInactive styles the title line inside an unfocused pane.
+// PanelTitleInactive styles the title embedded in the border of an unfocused pane.
 var PanelTitleInactive = lipgloss.NewStyle().
 	Foreground(colorMuted)
+
+// BorderStrokeActive colors border characters for active panels.
+var BorderStrokeActive = lipgloss.NewStyle().Foreground(colorPrimary)
+
+// BorderStrokeInactive colors border characters for inactive panels.
+var BorderStrokeInactive = lipgloss.NewStyle().Foreground(colorBorder)
 
 // Muted renders dimmed helper text.
 var Muted = lipgloss.NewStyle().Foreground(colorMuted)

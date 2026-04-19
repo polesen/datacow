@@ -37,11 +37,11 @@ const (
 	focusSQL                     // pane 3: SQL log (bottom)
 )
 
-// sqlPaneContentH is the number of content lines in the SQL strip (excludes border and title).
+// sqlPaneContentH is the number of content lines in the SQL strip (excludes border).
 const sqlPaneContentH = 3
 
-// sqlPaneOuterH is the total rendered height of the SQL pane (border top + title + content + border bottom).
-const sqlPaneOuterH = 1 + sqlPaneContentH + 2
+// sqlPaneOuterH is the total rendered height of the SQL pane (border top + content + border bottom).
+const sqlPaneOuterH = sqlPaneContentH + 2
 
 // Config holds the startup configuration passed from cmd/main.go.
 type Config struct {
@@ -189,18 +189,9 @@ func (a *App) topSectionOuterH() int {
 	return h
 }
 
-// panelInnerH is the inner height of the left/right bordered panels (title line + model content).
-func (a *App) panelInnerH() int {
-	h := a.topSectionOuterH() - 2 // subtract top + bottom border
-	if h < 2 {
-		h = 2
-	}
-	return h
-}
-
-// modelH is the height given to each model's View (panelInnerH minus the title line).
+// modelH is the height given to each model's View (topSectionOuterH minus top and bottom borders).
 func (a *App) modelH() int {
-	h := a.panelInnerH() - 1
+	h := a.topSectionOuterH() - 2
 	if h < 1 {
 		h = 1
 	}
@@ -489,54 +480,30 @@ func (a *App) renderContent() string {
 }
 
 func (a *App) renderDatasourcePicker() string {
-	lw := a.leftInnerW()
-	rw := a.rightInnerW()
-	ph := a.panelInnerH()
-	sw := a.sqlInnerW()
-	sqlH := 1 + sqlPaneContentH
-
-	leftContent := lipgloss.JoinVertical(lipgloss.Left,
-		a.paneTitle("Datasources", true, lw),
-		a.datasourcePicker.View(),
+	topH := a.topSectionOuterH()
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top,
+		a.renderPanel("Datasources", true, a.leftOuterW(), topH, a.datasourcePicker.View()),
+		a.renderPanel("", false, a.rightOuterW(), topH,
+			style.Muted.Render("\n  Select a datasource\n  to browse its data.")),
 	)
-	leftBox := paneBorder(true).Width(lw).Height(ph).Render(leftContent)
-
-	hint := style.Muted.Render("\n  Select a datasource\n  to browse its data.")
-	rightBox := paneBorder(false).Width(rw).Height(ph).Render(hint)
-
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
-	sqlBox := paneBorder(false).Width(sw).Height(sqlH).Render("")
-
+	sqlBox := a.renderPanel("", false, a.width, sqlPaneOuterH, "")
 	return lipgloss.JoinVertical(lipgloss.Left, topRow, sqlBox)
 }
 
 func (a *App) renderSplitContent() string {
-	lw := a.leftInnerW()
-	rw := a.rightInnerW()
-	ph := a.panelInnerH()
-	sw := a.sqlInnerW()
-	sqlH := 1 + sqlPaneContentH // title line + content lines
+	topH := a.topSectionOuterH()
 
-	leftContent := lipgloss.JoinVertical(lipgloss.Left,
-		a.paneTitle("1 Tables", a.focus == focusTables, lw),
-		a.tableList.View(),
+	rowBrowserTitle := "2 Row Browser"
+	if a.rowBrowserReady {
+		rowBrowserTitle = "2 " + a.rowBrowser.DatasetName()
+	}
+
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top,
+		a.renderPanel("1 Tables", a.focus == focusTables, a.leftOuterW(), topH, a.tableList.View()),
+		a.renderPanel(rowBrowserTitle, a.focus == focusRowBrowser, a.rightOuterW(), topH, a.renderRightPane()),
 	)
-	leftBox := paneBorder(a.focus == focusTables).Width(lw).Height(ph).Render(leftContent)
-
-	rightContent := lipgloss.JoinVertical(lipgloss.Left,
-		a.paneTitle("2 Row Browser", a.focus == focusRowBrowser, rw),
-		a.renderRightPane(),
-	)
-	rightBox := paneBorder(a.focus == focusRowBrowser).Width(rw).Height(ph).Render(rightContent)
-
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
-
-	sqlContent := lipgloss.JoinVertical(lipgloss.Left,
-		a.paneTitle("3 SQL", a.focus == focusSQL, sw),
-		a.sqlPane.SetFocused(a.focus == focusSQL).View(),
-	)
-	sqlBox := paneBorder(a.focus == focusSQL).Width(sw).Height(sqlH).Render(sqlContent)
-
+	sqlBox := a.renderPanel("3 SQL", a.focus == focusSQL, a.width, sqlPaneOuterH,
+		a.sqlPane.SetFocused(a.focus == focusSQL).View())
 	return lipgloss.JoinVertical(lipgloss.Left, topRow, sqlBox)
 }
 
@@ -553,18 +520,73 @@ func (a *App) renderCellViewer() string {
 	return a.cellViewer.View()
 }
 
-func (a *App) paneTitle(title string, active bool, width int) string {
-	if active {
-		return style.PanelTitleActive.Width(width).Render(title)
+// renderPanel builds a rounded-border panel with the title embedded in the top border line.
+func (a *App) renderPanel(title string, active bool, outerW, outerH int, content string) string {
+	b := lipgloss.RoundedBorder()
+	innerW := outerW - 2
+	innerH := outerH - 2
+	if innerW < 1 {
+		innerW = 1
 	}
-	return style.PanelTitleInactive.Width(width).Render(title)
-}
+	if innerH < 1 {
+		innerH = 1
+	}
 
-func paneBorder(active bool) lipgloss.Style {
+	var borderSty, titleSty lipgloss.Style
 	if active {
-		return style.PanelActive
+		borderSty = style.BorderStrokeActive
+		titleSty = style.PanelTitleActive
+	} else {
+		borderSty = style.BorderStrokeInactive
+		titleSty = style.PanelTitleInactive
 	}
-	return style.PanelInactive
+
+	var topLine string
+	if title == "" {
+		topLine = borderSty.Render(b.TopLeft + strings.Repeat(b.Top, innerW) + b.TopRight)
+	} else {
+		titleText := titleSty.Render(" " + title + " ")
+		titleW := lipgloss.Width(titleText)
+		dashTotal := innerW - titleW
+		if dashTotal < 0 {
+			dashTotal = 0
+		}
+		leftDash := 1
+		rightDash := dashTotal - leftDash
+		if rightDash < 0 {
+			rightDash = 0
+			leftDash = dashTotal
+		}
+		topLine = borderSty.Render(b.TopLeft+strings.Repeat(b.Top, leftDash)) +
+			titleText +
+			borderSty.Render(strings.Repeat(b.Top, rightDash)+b.TopRight)
+	}
+
+	bottomLine := borderSty.Render(b.BottomLeft + strings.Repeat(b.Bottom, innerW) + b.BottomRight)
+
+	left := borderSty.Render(b.Left)
+	right := borderSty.Render(b.Right)
+
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	for len(lines) < innerH {
+		lines = append(lines, "")
+	}
+	lines = lines[:innerH]
+
+	body := make([]string, innerH)
+	for i, ln := range lines {
+		pad := innerW - lipgloss.Width(ln)
+		if pad > 0 {
+			ln += strings.Repeat(" ", pad)
+		}
+		body[i] = left + ln + right
+	}
+
+	parts := make([]string, 0, 2+innerH)
+	parts = append(parts, topLine)
+	parts = append(parts, body...)
+	parts = append(parts, bottomLine)
+	return strings.Join(parts, "\n")
 }
 
 func (a *App) renderStatusBar() string {

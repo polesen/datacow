@@ -658,6 +658,7 @@ func (m RowBrowserModel) TotalRows() int64 {
 
 func (m RowBrowserModel) ColOffset() int               { return m.colOffset }
 func (m RowBrowserModel) ColCursor() int               { return m.colCursor }
+func (m RowBrowserModel) DatasetName() string          { return m.ds.Name }
 func (m RowBrowserModel) RowCursor() int               { return m.rowCursor }
 func (m RowBrowserModel) ForeignKeys() []db.ForeignKey { return m.fks }
 func (m RowBrowserModel) DrillDepth() int              { return len(m.drillStack) }
