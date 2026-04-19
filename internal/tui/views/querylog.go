@@ -9,8 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/beetio/datacow/internal/core/db"
-	"github.com/beetio/datacow/internal/tui/style"
+	"github.com/polesen/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/tui/style"
 )
 
 // QueryLogView renders the full-screen query log panel.

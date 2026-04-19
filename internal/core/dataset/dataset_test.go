@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/beetio/datacow/internal/core/dataset"
-	"github.com/beetio/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/dataset"
+	"github.com/polesen/datacow/internal/core/db"
 )
 
 // helper: connect to Postgres or skip

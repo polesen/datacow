@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/beetio/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/db"
 )
 
 // identRe matches safe SQL identifiers: letters, digits, underscore, starting with letter/underscore.

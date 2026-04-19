@@ -10,13 +10,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/beetio/datacow/internal/core/config"
-	"github.com/beetio/datacow/internal/core/dataset"
-	"github.com/beetio/datacow/internal/core/db"
-	"github.com/beetio/datacow/internal/core/export"
-	"github.com/beetio/datacow/internal/tui/keys"
-	"github.com/beetio/datacow/internal/tui/style"
-	"github.com/beetio/datacow/internal/tui/views"
+	"github.com/polesen/datacow/internal/core/config"
+	"github.com/polesen/datacow/internal/core/dataset"
+	"github.com/polesen/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/export"
+	"github.com/polesen/datacow/internal/tui/keys"
+	"github.com/polesen/datacow/internal/tui/style"
+	"github.com/polesen/datacow/internal/tui/views"
 )
 
 type screen int

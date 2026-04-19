@@ -14,8 +14,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
-	"github.com/beetio/datacow/internal/tui/keys"
-	"github.com/beetio/datacow/internal/tui/style"
+	"github.com/polesen/datacow/internal/tui/keys"
+	"github.com/polesen/datacow/internal/tui/style"
 )
 
 // OpenCellViewerMsg is emitted by the row browser to open the full-screen cell viewer.

@@ -7,9 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/beetio/datacow/internal/core/config"
-	"github.com/beetio/datacow/internal/core/db"
-	"github.com/beetio/datacow/internal/tui"
+	"github.com/polesen/datacow/internal/core/config"
+	"github.com/polesen/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/tui"
 )
 
 var version = "0.1.0-dev"

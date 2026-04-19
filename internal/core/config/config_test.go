@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/beetio/datacow/internal/core/config"
+	"github.com/polesen/datacow/internal/core/config"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {

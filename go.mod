@@ -1,4 +1,4 @@
-module github.com/beetio/datacow
+module github.com/polesen/datacow
 
 go 1.25.6
 

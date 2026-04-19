@@ -9,9 +9,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	teatest "github.com/charmbracelet/x/exp/teatest"
 
-	"github.com/beetio/datacow/internal/core/config"
-	"github.com/beetio/datacow/internal/core/db"
-	"github.com/beetio/datacow/internal/tui"
+	"github.com/polesen/datacow/internal/core/config"
+	"github.com/polesen/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/tui"
 )
 
 func TestApp_DatasourcePicker_MultiDatasource(t *testing.T) {

@@ -3,8 +3,8 @@ package dataset
 import (
 	"context"
 
-	"github.com/beetio/datacow/internal/core/config"
-	"github.com/beetio/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/config"
+	"github.com/polesen/datacow/internal/core/db"
 )
 
 // Resolver auto-discovers all tables in a database and merges config-defined datasets.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/beetio/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/db"
 )
 
 // queryExec runs a DDL or DML statement via Query, ignoring the result set.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/beetio/datacow/internal/core/dataset"
+	"github.com/polesen/datacow/internal/core/dataset"
 )
 
 // parseFilterInput parses "column<op>value" expressions (e.g. "price>=10", "name like foo").

@@ -12,11 +12,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
 
-	"github.com/beetio/datacow/internal/core/dataset"
-	"github.com/beetio/datacow/internal/core/db"
-	"github.com/beetio/datacow/internal/core/export"
-	"github.com/beetio/datacow/internal/tui/keys"
-	"github.com/beetio/datacow/internal/tui/style"
+	"github.com/polesen/datacow/internal/core/dataset"
+	"github.com/polesen/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/export"
+	"github.com/polesen/datacow/internal/tui/keys"
+	"github.com/polesen/datacow/internal/tui/style"
 )
 
 type RowsLoadedMsg *dataset.QueryResult

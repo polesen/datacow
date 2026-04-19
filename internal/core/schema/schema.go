@@ -3,7 +3,7 @@ package schema
 import (
 	"context"
 
-	"github.com/beetio/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/db"
 )
 
 // Table holds the complete schema for a single table or view.

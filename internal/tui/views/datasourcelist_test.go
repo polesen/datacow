@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/beetio/datacow/internal/core/config"
-	"github.com/beetio/datacow/internal/tui/keys"
-	"github.com/beetio/datacow/internal/tui/views"
+	"github.com/polesen/datacow/internal/core/config"
+	"github.com/polesen/datacow/internal/tui/keys"
+	"github.com/polesen/datacow/internal/tui/views"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

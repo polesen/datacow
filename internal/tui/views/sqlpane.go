@@ -7,9 +7,9 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/beetio/datacow/internal/core/db"
-	"github.com/beetio/datacow/internal/tui/keys"
-	"github.com/beetio/datacow/internal/tui/style"
+	"github.com/polesen/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/tui/keys"
+	"github.com/polesen/datacow/internal/tui/style"
 )
 
 // SQLPaneModel renders recent query history in a compact bottom strip.

@@ -1,6 +1,6 @@
 package dataset
 
-import "github.com/beetio/datacow/internal/core/db"
+import "github.com/polesen/datacow/internal/core/db"
 
 // Kind classifies a Dataset by its underlying object type.
 type Kind string

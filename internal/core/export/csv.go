@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/beetio/datacow/internal/core/dataset"
+	"github.com/polesen/datacow/internal/core/dataset"
 )
 
 func (e *Exporter) exportCSV(ctx context.Context, ds dataset.Dataset, opts dataset.QueryOptions, path string, progressFn func(int)) error {

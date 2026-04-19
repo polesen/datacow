@@ -3,7 +3,7 @@ package views
 import (
 	"testing"
 
-	"github.com/beetio/datacow/internal/core/dataset"
+	"github.com/polesen/datacow/internal/core/dataset"
 )
 
 func TestParseFilterInput(t *testing.T) {

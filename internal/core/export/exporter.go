@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/beetio/datacow/internal/core/dataset"
+	"github.com/polesen/datacow/internal/core/dataset"
 )
 
 const exportPageSize = 500

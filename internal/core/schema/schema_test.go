@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/beetio/datacow/internal/core/db"
-	"github.com/beetio/datacow/internal/core/schema"
+	"github.com/polesen/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/schema"
 )
 
 func TestLoad_Postgres(t *testing.T) {

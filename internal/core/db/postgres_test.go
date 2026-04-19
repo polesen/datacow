@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/beetio/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/db"
 )
 
 func postgresClient(t *testing.T) db.Client {
