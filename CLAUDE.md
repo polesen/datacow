@@ -238,6 +238,14 @@ Before considering any task complete, invoke the `/done` skill. It runs all chec
 
 Do not mark a task done if any check fails or any injection vector is found.
 
+## Persistent Memory
+
+The auto-memory system (`~/.claude/projects/...`) is Mac-local. It is not accessible from devcontainers or the GitHub app. Do not use it for project-level knowledge.
+
+When you learn something that should persist across sessions and environments:
+- **Project conventions, lessons, architectural decisions** → update this file (`CLAUDE.md`) directly and commit it
+- **Local-only config or secrets** → `CONTEXT.local.md` (gitignored, never commit)
+
 ## Conventions
 
 - **No business logic in TUI or API layers.** If you're writing a DB query in a view, move it to core.
@@ -245,6 +253,7 @@ Do not mark a task done if any check fails or any injection vector is found.
 - **Table-driven tests** for core logic. No mocks for DB — use test containers or real DBs.
 - **No global state.** Pass dependencies explicitly (factory pattern, like gh CLI).
 - **Keybindings configurable** — don't hardcode key handlers, route through a keybindings registry.
+- **Tests own their fixtures.** Create tables in test setup via `client.Query(ctx, "CREATE TABLE IF NOT EXISTS ...")` and drop them in `t.Cleanup`. Never seed via CI workflow steps or rely on tables left by other test packages. See `internal/core/db/postgres_test.go` for the pattern.
 
 ## Current Status
 
