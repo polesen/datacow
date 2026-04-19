@@ -223,6 +223,8 @@ Never write implementation before a failing test exists.
 
 Each task runs on its own feature branch (`task/M3-dataset-layer` etc.), created by `run-task.sh` before Claude starts. Do not create or switch branches. Commit your work to whatever branch is current when you start.
 
+Never commit directly to `main` or push to `main`. If the current branch is `main`, create a feature branch before committing.
+
 ## Definition of Done
 
 Before considering any task complete, invoke the `/done` skill. It runs all checks in sequence:

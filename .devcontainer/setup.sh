@@ -36,6 +36,11 @@ else
   echo "  WARNING: GIT_AUTHOR_NAME or GIT_AUTHOR_EMAIL not set in .env.local — commits will have no author"
 fi
 
+echo "==> Configuring git signing..."
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_rsa.pub
+git config --global commit.gpgsign true
+
 echo "==> Configuring Claude..."
 printf '{
   "hasCompletedOnboarding": true,
