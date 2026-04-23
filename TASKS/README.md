@@ -5,7 +5,7 @@ Read `CLAUDE.md` in the repo root before starting any task.
 
 ## Up Next
 
-(nothing queued)
+- [Fuzzy Goto](ready/fuzzy-goto.md) — `ctrl+p` global fuzzy search over tables, views, datasets, columns, datasources; schema cache in core; `ctrl+r` refresh
 
 ## Done
 
@@ -29,7 +29,6 @@ Not planned for the current version. Kept in `future/` for reference.
 
 - [HTTP API Server](future/http-api.md) — enables the web app; defer until web UI is prioritised
 - [Web App](future/web-app.md) — depends on HTTP API; full web UI for non-terminal users
-- [Schema Cache + Search / Goto](drafts/schema-cache-search.md) — full schema in memory, fuzzy search, goto; depends on schema-explorer (draft, not fully defined)
 
 ## Running Autonomously
 
