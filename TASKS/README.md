@@ -6,6 +6,7 @@ Read `CLAUDE.md` in the repo root before starting any task.
 ## Up Next
 
 - [Fuzzy Goto](ready/fuzzy-goto.md) — `ctrl+p` global fuzzy search over tables, views, datasets, columns, datasources; schema cache in core; `ctrl+r` refresh
+- [Maximize Pane](ready/maximize-pane.md) — `z` zooms the focused pane to full screen; `z` or `esc` restores the split
 
 ## Done
 
