@@ -36,10 +36,15 @@ else
   echo "  WARNING: GIT_AUTHOR_NAME or GIT_AUTHOR_EMAIL not set in .env.local — commits will have no author"
 fi
 
-echo "==> Configuring git signing..."
-git config --global gpg.format ssh
-git config --global user.signingkey ~/.ssh/id_rsa.pub
-git config --global commit.gpgsign true
+echo "==> Configuring git push auth..."
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  git config --global url."https://github.com/".insteadOf "git@github.com:"
+  gh auth setup-git
+  echo "  Git push auth configured via GITHUB_TOKEN"
+else
+  echo "  WARNING: GITHUB_TOKEN not set — git push inside container will fail"
+  echo "           Set GITHUB_TOKEN in .env.local (see .env.local.example)"
+fi
 
 echo "==> Configuring Claude..."
 printf '{

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Load local env so GITHUB_TOKEN and other vars are available to the devcontainer CLI
+if [ -f ".env.local" ]; then
+  source .env.local
+fi
+
 usage() {
   echo "Usage: $0 [--rebuild] [<task-file>]" >&2
   echo "Example: $0 tasks/ready/fuzzy-goto.md" >&2
@@ -38,6 +43,11 @@ if [ "$#" -eq 1 ]; then
     exit 1
   fi
 
+  if [ -z "${GITHUB_TOKEN:-}" ]; then
+    echo "WARNING: GITHUB_TOKEN is not set — Claude will not be able to push or open a PR" >&2
+    echo "         Set it in .env.local (see .env.local.example)" >&2
+  fi
+
   # Derive branch name from the bare filename, regardless of how the path was given
   BRANCH="task/$(basename "$TASK_FILE" .md)"
 
@@ -64,26 +74,7 @@ if [ -n "$TASK_FILE" ]; then
     "Read CLAUDE.md and tasks/definition-of-done.md, then complete the task described in $TASK_FILE. Verify all acceptance criteria in tasks/definition-of-done.md are met before finishing."
 
   echo ""
-  echo "Pushing branch '$BRANCH'..."
-  git push -u origin "$BRANCH"
-
-  echo "Opening pull request..."
-  TASK_NAME="$(basename "$TASK_FILE" .md)"
-  gh pr create \
-    --title "$TASK_NAME" \
-    --body "$(cat <<EOF
-Completes task: \`$TASK_FILE\`
-
-## Review checklist
-
-- [ ] Code does what the task describes
-- [ ] Run \`/simplify\` if reviewer flags unnecessary complexity
-EOF
-)" \
-    --head "$BRANCH"
-
-  echo ""
-  echo "Done. Review the PR above, then merge to main."
+  echo "Claude session complete."
 else
   echo "Starting interactive Claude session..."
   npx @devcontainers/cli exec --workspace-folder . claude --dangerously-skip-permissions

@@ -16,8 +16,17 @@ Before marking any task complete, invoke the `/done` skill. It runs all checks i
 
 When all quality gates pass:
 
-- Move the task file from `ready/` (or `drafts/`) to `done/` via `git mv`
-- Commit: include the task closure in the same commit as the final code changes, or as a follow-up commit on the same branch
+- Move the task file: `git mv tasks/ready/<task>.md tasks/done/<task>.md`
+- Commit all changes including the task file move
+- Push: `git push -u origin <branch>`
+- Open a PR with `gh pr create`:
+  - **Title**: short descriptive feature name (not the task filename)
+  - **Body**: what was built and why, followed by:
+    ```
+    ## Review checklist
+    - [ ] Code does what the task describes
+    - [ ] Run `/simplify` if reviewer flags unnecessary complexity
+    ```
 
 ## Notes
 
