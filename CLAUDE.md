@@ -227,16 +227,7 @@ Never commit directly to `main` or push to `main`. If the current branch is `mai
 
 ## Definition of Done
 
-Before considering any task complete, invoke the `/done` skill. It runs all checks in sequence:
-
-- `go build ./...` — must compile cleanly
-- `make wait-for-db` — ensure Postgres and MySQL are ready
-- `gotestsum --format testdox ./...` — all tests must pass
-- `make lint` — zero lint issues
-- `staticcheck ./...` — deeper static analysis
-- SQL injection scan — grep for `fmt.Sprintf` or string concatenation in SQL context; confirm all external input uses `$1`/`?` placeholders and dynamic identifiers are whitelist-validated
-
-Do not mark a task done if any check fails or any injection vector is found.
+See `TASKS/definition-of-done.md`. Invoke the `/done` skill — it runs all checks in sequence and stops on the first failure.
 
 ## Persistent Memory
 
@@ -257,9 +248,7 @@ When you learn something that should persist across sessions and environments:
 
 ## Current Status
 
-@TASKS/README.md
+@tasks/README.md
 
-Tasks are in `TASKS/`.
-
-Keep the `TASKS/README.md` file current with the progress you make.
+Tasks are in `tasks/`. See `tasks/CONTEXT.md` for the task lifecycle.
 

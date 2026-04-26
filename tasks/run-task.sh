@@ -2,9 +2,10 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 [--rebuild] [<milestone>]" >&2
-  echo "Example: $0 M3-dataset-layer.md" >&2
-  echo "         $0 --rebuild M3-dataset-layer.md" >&2
+  echo "Usage: $0 [--rebuild] [<task-file>]" >&2
+  echo "Example: $0 tasks/ready/fuzzy-goto.md" >&2
+  echo "         $0 ready/fuzzy-goto.md" >&2
+  echo "         $0 --rebuild ready/fuzzy-goto.md" >&2
   echo "         $0                               # interactive: no task, no branch" >&2
 }
 
@@ -24,12 +25,12 @@ fi
 
 TASK_FILE=""
 if [ "$#" -eq 1 ]; then
-  # Accept either a full path or just a filename — normalise to a path under TASKS/
+  # Accept either a full path or just a filename — normalise to a path under tasks/
   INPUT="$1"
-  if [[ "$INPUT" == TASKS/* || "$INPUT" == /* ]]; then
+  if [[ "$INPUT" == tasks/* || "$INPUT" == /* ]]; then
     TASK_FILE="$INPUT"
   else
-    TASK_FILE="TASKS/$INPUT"
+    TASK_FILE="tasks/$INPUT"
   fi
 
   if [ ! -f "$TASK_FILE" ] || [ ! -r "$TASK_FILE" ]; then
@@ -60,11 +61,21 @@ if [ -n "$TASK_FILE" ]; then
   echo "Running Claude on $TASK_FILE (branch: $BRANCH)..."
   npx @devcontainers/cli exec --workspace-folder . \
     claude --dangerously-skip-permissions \
-    "Read CLAUDE.md, then complete the task described in $TASK_FILE. Verify all acceptance criteria are met before finishing."
+    "Read CLAUDE.md and tasks/definition-of-done.md, then complete the task described in $TASK_FILE. Verify all acceptance criteria in tasks/definition-of-done.md are met before finishing."
 
   echo ""
-  echo "Task complete. You are on branch '$BRANCH'."
-  echo "Review the changes, run /simplify if needed, then merge to main."
+  echo "Pushing branch '$BRANCH'..."
+  git push -u origin "$BRANCH"
+
+  echo "Opening pull request..."
+  TASK_NAME="$(basename "$TASK_FILE" .md)"
+  gh pr create \
+    --title "$TASK_NAME" \
+    --body "Completes task: \`$TASK_FILE\`" \
+    --head "$BRANCH"
+
+  echo ""
+  echo "Done. Review the PR above, run /simplify if needed, then merge to main."
 else
   echo "Starting interactive Claude session..."
   npx @devcontainers/cli exec --workspace-folder . claude --dangerously-skip-permissions

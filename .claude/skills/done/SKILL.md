@@ -10,9 +10,6 @@ Run each step below in order. Stop and report clearly if any step fails — do n
 3. `gotestsum --format testdox ./...` — all tests must pass
 4. `make lint` — zero lint warnings
 5. `staticcheck ./...` — zero static analysis findings
-6. SQL injection scan — run: `grep -rn "fmt\.Sprintf\|+.*SELECT\|+.*WHERE\|+.*FROM\|+.*INSERT\|+.*UPDATE\|+.*DELETE" --include="*.go" .`
-   - Review every match: confirm it does NOT interpolate user input, column names, or table names
-   - If a match is a safe string literal with no external input, note it as safe
-   - If any match is unsafe, fix it before continuing
+6. SQL injection — spawn the `sql-security-reviewer` subagent (Agent tool, subagent_type: `sql-security-reviewer`). Pass it the list of changed Go files from `git diff --name-only HEAD` filtered to `*.go`. Review its findings and fix any injection vector before continuing.
 
 Only report the task as done when all six steps pass and no injection vector is found.
