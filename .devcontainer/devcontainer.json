@@ -11,7 +11,8 @@
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/node:1": {
       "version": "lts"
-    }
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
 
   "customizations": {
@@ -28,6 +29,7 @@
     "DATACOW_DEV": "true",
     "TEST_POSTGRES_DSN": "postgres://datacow:datacow@postgres:5432/datacow_test?sslmode=disable",
     "TEST_MYSQL_DSN": "datacow:datacow@tcp(mysql:3306)/datacow_test",
-    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
+    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin",
+    "GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}"
   }
 }
