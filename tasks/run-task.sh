@@ -71,11 +71,19 @@ if [ -n "$TASK_FILE" ]; then
   TASK_NAME="$(basename "$TASK_FILE" .md)"
   gh pr create \
     --title "$TASK_NAME" \
-    --body "Completes task: \`$TASK_FILE\`" \
+    --body "$(cat <<EOF
+Completes task: \`$TASK_FILE\`
+
+## Review checklist
+
+- [ ] Code does what the task describes
+- [ ] Run \`/simplify\` if reviewer flags unnecessary complexity
+EOF
+)" \
     --head "$BRANCH"
 
   echo ""
-  echo "Done. Review the PR above, run /simplify if needed, then merge to main."
+  echo "Done. Review the PR above, then merge to main."
 else
   echo "Starting interactive Claude session..."
   npx @devcontainers/cli exec --workspace-folder . claude --dangerously-skip-permissions
