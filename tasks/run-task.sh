@@ -26,7 +26,7 @@ fi
 TASK_FILE=""
 if [ "$#" -eq 1 ]; then
   # Accept either a full path or just a filename — normalise to a path under tasks/
-  INPUT="$1"
+  INPUT="${1#./}"
   if [[ "$INPUT" == tasks/* || "$INPUT" == /* ]]; then
     TASK_FILE="$INPUT"
   else
