@@ -9,7 +9,8 @@ Before marking any task complete, invoke the `/done` skill. It runs all checks i
 3. **Tests pass** — `gotestsum --format testdox ./...` — all tests green, zero failures
 4. **Lint** — `make lint` — zero golangci-lint warnings
 5. **Static analysis** — `staticcheck ./...` — zero findings
-6. **SQL injection** — run the `sql-security-reviewer` subagent against all changed Go files; fix any findings before proceeding
+6. **Architecture** — run `/arch-review`; resolve any layer violations before continuing
+7. **SQL injection** — run the `sql-security-reviewer` subagent against all changed Go files; fix any findings before proceeding
 
 ## Task Closure
 
@@ -20,6 +21,6 @@ When all quality gates pass:
 
 ## Notes
 
-- A task is not done until all six quality gates pass with zero findings
+- A task is not done until all seven quality gates pass with zero findings
 - Do not skip the SQL injection scan — it catches patterns that `staticcheck` and lint miss
 - If `make wait-for-db` fails, stop immediately — the devcontainer needs attention, not the code
