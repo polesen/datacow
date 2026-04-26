@@ -199,3 +199,332 @@ func TestApp_TableList_WithRealDB(t *testing.T) {
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
+
+func TestApp_Maximize_ToggleOnPane1(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Press z on pane 1 — status bar shows "z restore".
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_Maximize_ToggleOff(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// z to maximize, z again to restore.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "1 Tables") &&
+			strings.Contains(s, "2 Row Browser") &&
+			strings.Contains(s, "3 SQL") &&
+			!strings.Contains(s, "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_Maximize_Pane2(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Focus pane 2, then z — status bar should show "z restore".
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_Maximize_Pane3OpensQueryLog(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Focus pane 3, press z — query log opens; split "z restore" NOT shown.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "query log") && !strings.Contains(s, "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_Maximize_EscRestoresTables(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Maximize pane 1, then esc — split should restore.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "1 Tables") &&
+			strings.Contains(s, "2 Row Browser") &&
+			strings.Contains(s, "3 SQL") &&
+			!strings.Contains(s, "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_Maximize_ResizeWhileMaximized(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Maximize pane 1, then resize — should stay maximized and fill new dimensions.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	tm.Send(tea.WindowSizeMsg{Width: 200, Height: 50})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "z restore") && strings.Contains(s, "1 Tables")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_Maximize_PaneKeyWhileMaximized(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Maximize pane 1, then press 2 — switches to pane 2 while staying maximized.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "z restore") && strings.Contains(s, "2 Row Browser")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_Maximize_SplitNotBrokenAfterRestore(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// z to maximize, z to restore — all three pane borders must be present.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "1 Tables") &&
+			strings.Contains(s, "2 Row Browser") &&
+			strings.Contains(s, "3 SQL")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_Maximize_EscRestoresRowBrowserNodrill(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS maximize_esc_rows (id SERIAL PRIMARY KEY, label TEXT)"); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	if _, err := client.Query(ctx, "INSERT INTO maximize_esc_rows (label) VALUES ('a') ON CONFLICT DO NOTHING"); err != nil {
+		t.Fatalf("insert fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS maximize_esc_rows")
+	})
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	// Wait for the fixture table to appear.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "maximize_esc_rows")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Press Enter/Right until the row browser opens for our table.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "2 maximize_esc_rows")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Maximize pane 2, then esc — should restore split without drill collapse.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "1 Tables") &&
+			strings.Contains(s, "3 SQL") &&
+			!strings.Contains(s, "z restore")
+	}, teatest.WithDuration(3*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}

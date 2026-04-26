@@ -71,6 +71,7 @@ type App struct {
 	screen              screen
 	screenBeforeOverlay screen
 	focus               focus
+	maximized           bool
 	datasourcePicker    views.DatasourceListModel
 	multiDatasource     bool
 	connections         map[string]db.Client
@@ -232,6 +233,46 @@ func (a *App) sqlInnerW() int {
 	return w
 }
 
+func (a *App) maximizedPanelH() int {
+	h := a.contentHeight() - 2
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+func (a *App) maximizedPanelInnerW() int {
+	w := a.width - 2
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+func (a *App) pushNormalSizes() {
+	a.tableList, _ = a.tableList.Update(
+		tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
+	if a.rowBrowserReady {
+		a.rowBrowser, _ = a.rowBrowser.Update(
+			tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()})
+	}
+	a.sqlPane, _ = a.sqlPane.Update(
+		tea.WindowSizeMsg{Width: a.sqlInnerW(), Height: sqlPaneContentH})
+}
+
+func (a *App) pushMaximizedSizes() {
+	switch a.focus {
+	case focusTables:
+		a.tableList, _ = a.tableList.Update(
+			tea.WindowSizeMsg{Width: a.maximizedPanelInnerW(), Height: a.maximizedPanelH()})
+	case focusRowBrowser:
+		if a.rowBrowserReady {
+			a.rowBrowser, _ = a.rowBrowser.Update(
+				tea.WindowSizeMsg{Width: a.maximizedPanelInnerW(), Height: a.maximizedPanelH()})
+		}
+	}
+}
+
 // Update implements tea.Model.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -278,14 +319,41 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch msg.String() {
 				case "1":
 					a.focus = focusTables
+					if a.maximized {
+						a.pushMaximizedSizes()
+					}
 					return a, nil
 				case "2":
 					a.focus = focusRowBrowser
+					if a.maximized {
+						a.pushMaximizedSizes()
+					}
 					return a, nil
 				case "3":
+					if a.maximized {
+						a.maximized = false
+						a.pushNormalSizes()
+					}
 					a.focus = focusSQL
 					return a, nil
 				}
+			}
+
+			if !inFilterInput && key.Matches(msg, a.keys.Maximize) {
+				if a.focus == focusSQL {
+					a.screenBeforeOverlay = a.screen
+					a.screen = screenQueryLog
+					a.queryLogView, _ = a.queryLogView.Update(
+						tea.WindowSizeMsg{Width: a.width - 1, Height: a.contentHeight()})
+					return a, nil
+				}
+				a.maximized = !a.maximized
+				if a.maximized {
+					a.pushMaximizedSizes()
+				} else {
+					a.pushNormalSizes()
+				}
+				return a, nil
 			}
 
 			if key.Matches(msg, a.keys.SwitchFocus) {
@@ -331,10 +399,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 
-			// Esc from row browser with nothing to collapse → focus table list.
+			// Esc from row browser with nothing to collapse → exit maximized or focus table list.
 			if a.focus == focusRowBrowser && key.Matches(msg, a.keys.Back) &&
 				a.rowBrowserReady && !a.rowBrowser.NeedsBackKey() {
-				a.focus = focusTables
+				if a.maximized {
+					a.maximized = false
+					a.pushNormalSizes()
+				} else {
+					a.focus = focusTables
+				}
+				return a, nil
+			}
+
+			// Esc from table list while maximized → restore split.
+			if a.focus == focusTables && key.Matches(msg, a.keys.Back) && a.maximized {
+				a.maximized = false
+				a.pushNormalSizes()
 				return a, nil
 			}
 
@@ -390,11 +470,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.datasourcePicker, _ = a.datasourcePicker.Update(tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
-		a.tableList, _ = a.tableList.Update(tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
-		if a.rowBrowserReady {
-			a.rowBrowser, _ = a.rowBrowser.Update(tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()})
+		a.pushNormalSizes()
+		if a.maximized {
+			a.pushMaximizedSizes()
 		}
-		a.sqlPane, _ = a.sqlPane.Update(tea.WindowSizeMsg{Width: a.sqlInnerW(), Height: sqlPaneContentH})
 		if a.screen == screenQueryLog {
 			a.queryLogView, _ = a.queryLogView.Update(tea.WindowSizeMsg{Width: a.width - 1, Height: a.contentHeight()})
 		}
@@ -461,6 +540,9 @@ func (a *App) renderContent() string {
 	case screenDatasourcePicker:
 		return a.renderDatasourcePicker()
 	case screenSplit:
+		if a.maximized {
+			return a.renderMaximizedContent()
+		}
 		return a.renderSplitContent()
 	case screenQueryLog:
 		leftPad := lipgloss.NewStyle().PaddingLeft(1)
@@ -505,6 +587,21 @@ func (a *App) renderSplitContent() string {
 	sqlBox := a.renderPanel("3 SQL", a.focus == focusSQL, a.width, sqlPaneOuterH,
 		a.sqlPane.SetFocused(a.focus == focusSQL).View())
 	return lipgloss.JoinVertical(lipgloss.Left, topRow, sqlBox)
+}
+
+func (a *App) renderMaximizedContent() string {
+	switch a.focus {
+	case focusTables:
+		return a.renderPanel("1 Tables", true, a.width, a.contentHeight(), a.tableList.View())
+	case focusRowBrowser:
+		title := "2 Row Browser"
+		if a.rowBrowserReady {
+			title = "2 " + a.rowBrowser.DatasetName()
+		}
+		return a.renderPanel(title, true, a.width, a.contentHeight(), a.renderRightPane())
+	default:
+		return a.renderSplitContent()
+	}
 }
 
 func (a *App) renderRightPane() string {
@@ -618,9 +715,12 @@ func (a *App) renderStatusBar() string {
 	default:
 		bindings = a.keys.ShortHelp()
 	}
-	parts := make([]string, 0, len(bindings)+1)
+	parts := make([]string, 0, len(bindings)+2)
 	if runningPart != "" {
 		parts = append(parts, runningPart)
+	}
+	if a.screen == screenSplit && a.maximized {
+		parts = append(parts, style.StatusKey.Render("z")+style.StatusDesc.Render(" restore"))
 	}
 	for _, b := range bindings {
 		parts = append(parts, style.StatusKey.Render(b.Help().Key)+style.StatusDesc.Render(" "+b.Help().Desc))
@@ -634,11 +734,17 @@ func (a *App) renderRowBrowserStatusBar(runningPart string) string {
 	escDesc := " pane 1"
 	if a.rowBrowser.DrillDepth() > 0 {
 		escDesc = " collapse"
+	} else if a.maximized {
+		escDesc = " restore"
 	}
 
-	keyParts := []string{
-		style.StatusKey.Render("q") + style.StatusDesc.Render(" quit"),
-		style.StatusKey.Render("esc") + style.StatusDesc.Render(escDesc),
+	keyParts := []string{}
+	if a.maximized {
+		keyParts = append(keyParts, style.StatusKey.Render("z")+style.StatusDesc.Render(" restore"))
+	}
+	keyParts = append(keyParts,
+		style.StatusKey.Render("q")+style.StatusDesc.Render(" quit"),
+		style.StatusKey.Render("esc")+style.StatusDesc.Render(escDesc),
 		style.StatusKey.Render("[") + style.StatusDesc.Render(" prev"),
 		style.StatusKey.Render("]") + style.StatusDesc.Render(" next"),
 		style.StatusKey.Render("↑↓") + style.StatusDesc.Render(" row"),
@@ -646,7 +752,7 @@ func (a *App) renderRowBrowserStatusBar(runningPart string) string {
 		style.StatusKey.Render("/") + style.StatusDesc.Render(" filter"),
 		style.StatusKey.Render("s") + style.StatusDesc.Render(" sort"),
 		style.StatusKey.Render("e") + style.StatusDesc.Render(" export"),
-	}
+	)
 	if a.rowBrowser.IsFKColumn() {
 		keyParts = append(keyParts, style.StatusKey.Render("↵")+style.StatusDesc.Render(" drill"))
 	}
