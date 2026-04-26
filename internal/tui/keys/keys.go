@@ -13,6 +13,7 @@ type Map struct {
 	Sort         key.Binding
 	Export       key.Binding
 	QueryLog     key.Binding
+	Maximize     key.Binding
 	SwitchFocus  key.Binding
 	Pane1        key.Binding
 	Pane2        key.Binding
@@ -62,6 +63,10 @@ func Default() Map {
 		QueryLog: key.NewBinding(
 			key.WithKeys("L"),
 			key.WithHelp("L", "query log"),
+		),
+		Maximize: key.NewBinding(
+			key.WithKeys("z"),
+			key.WithHelp("z", "maximize"),
 		),
 		SwitchFocus: key.NewBinding(
 			key.WithKeys("tab"),
@@ -133,6 +138,6 @@ func (m Map) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{m.Up, m.Down, m.Left, m.Right},
 		{m.Enter, m.Back, m.Filter, m.Sort, m.Export, m.Help, m.Quit},
-		{m.SwitchFocus, m.Pane1, m.Pane2, m.Pane3, m.QueryLog},
+		{m.SwitchFocus, m.Pane1, m.Pane2, m.Pane3, m.QueryLog, m.Maximize},
 	}
 }
