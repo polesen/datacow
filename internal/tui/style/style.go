@@ -166,3 +166,6 @@ var QueryLabel = lipgloss.NewStyle().Foreground(colorMuted).Italic(true)
 
 // StatusConnected styles the "connected" indicator in the datasource list.
 var StatusConnected = lipgloss.NewStyle().Foreground(colorPrimary)
+
+// GotoMatch styles characters in the goto dialog that matched the search query.
+var GotoMatch = lipgloss.NewStyle().Foreground(colorKey).Bold(true)
