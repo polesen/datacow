@@ -191,9 +191,10 @@ func TestApp_TableList_WithRealDB(t *testing.T) {
 	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
 
 	// Wait for the fixture table to appear in the table list (tables load async).
+	// WaitFor accumulates raw bytes so we only check for the positive signal;
+	// "Connecting..." from an early render would permanently poison a negative check.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		s := string(bts)
-		return strings.Contains(s, "tui_test_items") && !strings.Contains(s, "Connecting")
+		return strings.Contains(string(bts), "tui_test_items")
 	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
 
 	_ = tm.Quit()

@@ -286,3 +286,35 @@ func TestTableListModel_ExpandedRendersSubRows(t *testing.T) {
 		}
 	}
 }
+
+func TestTableListModel_SelectByName_Found(t *testing.T) {
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
+		{Name: "users", Table: "users"},
+		{Name: "orders", Table: "orders"},
+		{Name: "products", Table: "products"},
+	}))
+
+	found := m.SelectByName("orders")
+	if !found {
+		t.Error("SelectByName('orders') should return true")
+	}
+	if m.Cursor() != 1 {
+		t.Errorf("expected cursor 1 after SelectByName('orders'), got %d", m.Cursor())
+	}
+}
+
+func TestTableListModel_SelectByName_NotFound(t *testing.T) {
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
+		{Name: "users", Table: "users"},
+	}))
+
+	found := m.SelectByName("nonexistent")
+	if found {
+		t.Error("SelectByName('nonexistent') should return false")
+	}
+	if m.Cursor() != 0 {
+		t.Errorf("cursor should remain 0 after failed SelectByName, got %d", m.Cursor())
+	}
+}

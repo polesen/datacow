@@ -27,6 +27,8 @@ type Map struct {
 	NextPage     key.Binding
 	PrevPage     key.Binding
 	ViewCell     key.Binding
+	Goto         key.Binding
+	Refresh      key.Binding
 }
 
 // Default returns the default keybindings.
@@ -119,6 +121,14 @@ func Default() Map {
 		ViewCell: key.NewBinding(
 			key.WithKeys("v"),
 			key.WithHelp("v", "view cell"),
+		),
+		Goto: key.NewBinding(
+			key.WithKeys("ctrl+p"),
+			key.WithHelp("ctrl+p", "goto"),
+		),
+		Refresh: key.NewBinding(
+			key.WithKeys("ctrl+r"),
+			key.WithHelp("ctrl+r", "refresh schema"),
 		),
 	}
 }

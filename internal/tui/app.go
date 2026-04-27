@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -14,6 +16,7 @@ import (
 	"github.com/polesen/datacow/internal/core/dataset"
 	"github.com/polesen/datacow/internal/core/db"
 	"github.com/polesen/datacow/internal/core/export"
+	"github.com/polesen/datacow/internal/core/schema"
 	"github.com/polesen/datacow/internal/tui/keys"
 	"github.com/polesen/datacow/internal/tui/style"
 	"github.com/polesen/datacow/internal/tui/views"
@@ -27,6 +30,7 @@ const (
 	screenQueryLog                       // full-screen query log overlay
 	screenCellViewer                     // full-screen cell viewer overlay
 	screenError                          // connection failed
+	screenGoto                           // fuzzy goto dialog overlay
 )
 
 type focus int
@@ -61,6 +65,15 @@ type Config struct {
 	Datasources []config.DatasourceConfig
 }
 
+// schemaCacheReadyMsg signals that the initial schema cache load completed.
+type schemaCacheReadyMsg struct{}
+
+// schemaCacheErrMsg signals that schema cache load failed.
+type schemaCacheErrMsg struct{ Err error }
+
+// schemaCacheRefreshedMsg signals that a ctrl+r refresh completed.
+type schemaCacheRefreshedMsg struct{}
+
 // App is the root Bubble Tea model for Datacow.
 type App struct {
 	cfg                 Config
@@ -86,6 +99,12 @@ type App struct {
 	queryLog            *db.QueryLog
 	appSpinner          spinner.Model
 	initErr             error
+	schemaCache         *schema.Cache
+	gotoModel           views.GotoModel
+	cacheLoading        bool
+	activeClient        db.Client
+	activeResolver      *dataset.Resolver
+	cacheInitCmd        tea.Cmd
 }
 
 // New creates a ready-to-run App.
@@ -113,7 +132,7 @@ func New(cfg Config, client db.Client, connErr error) *App {
 
 	case client != nil && connErr == nil:
 		// Single connection already established.
-		a.activateConnection(cfg.ActiveDatasource, client)
+		a.cacheInitCmd = a.activateConnection(cfg.ActiveDatasource, client)
 		a.screen = screenSplit
 		a.focus = focusTables
 
@@ -125,7 +144,8 @@ func New(cfg Config, client db.Client, connErr error) *App {
 }
 
 // activateConnection wires up the executor/resolver/tableList for an open connection.
-func (a *App) activateConnection(name string, client db.Client) {
+// Returns a tea.Cmd that starts the schema cache load in the background.
+func (a *App) activateConnection(name string, client db.Client) tea.Cmd {
 	queryLog := db.NewQueryLog()
 	lc := db.NewLoggingClient(client, queryLog)
 	resolver := dataset.NewResolver(lc, a.cfg.ConfigDatasets, name)
@@ -140,6 +160,43 @@ func (a *App) activateConnection(name string, client db.Client) {
 	a.focus = focusTables
 	if name != "" {
 		a.connLabel = name
+	}
+
+	a.activeClient = lc
+	a.activeResolver = resolver
+	a.schemaCache = schema.NewCache()
+	a.gotoModel = views.NewGotoModel(a.schemaCache, a.cfg.Datasources)
+	a.cacheLoading = true
+	return a.cacheLoadCmd()
+}
+
+// cacheLoadCmd starts a background cache load and returns the appropriate message.
+func (a *App) cacheLoadCmd() tea.Cmd {
+	cache := a.schemaCache
+	client := a.activeClient
+	resolver := a.activeResolver
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if err := cache.Load(ctx, client, resolver); err != nil {
+			return schemaCacheErrMsg{Err: err}
+		}
+		return schemaCacheReadyMsg{}
+	}
+}
+
+// cacheRefreshCmd starts a background cache refresh.
+func (a *App) cacheRefreshCmd() tea.Cmd {
+	cache := a.schemaCache
+	client := a.activeClient
+	resolver := a.activeResolver
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if err := cache.Refresh(ctx, client, resolver); err != nil {
+			return schemaCacheErrMsg{Err: err}
+		}
+		return schemaCacheRefreshedMsg{}
 	}
 }
 
@@ -166,6 +223,9 @@ func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{a.appSpinner.Tick}
 	if a.screen == screenSplit {
 		cmds = append(cmds, a.tableList.Init())
+		if a.cacheInitCmd != nil {
+			cmds = append(cmds, a.cacheInitCmd)
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -294,6 +354,33 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if key.Matches(msg, a.keys.Quit) {
 			return a, tea.Quit
+		}
+
+		// ctrl+p: open goto dialog from any screen with an active connection.
+		if key.Matches(msg, a.keys.Goto) &&
+			a.screen != screenDatasourcePicker &&
+			a.screen != screenGoto &&
+			a.schemaCache != nil {
+			a.screenBeforeOverlay = a.screen
+			a.screen = screenGoto
+			a.gotoModel, _ = a.gotoModel.Update(
+				tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
+			return a, a.gotoModel.Focus()
+		}
+
+		// ctrl+r: trigger schema refresh when a connection is active.
+		if key.Matches(msg, a.keys.Refresh) &&
+			a.schemaCache != nil &&
+			!a.cacheLoading &&
+			a.screen != screenDatasourcePicker {
+			a.cacheLoading = true
+			return a, a.cacheRefreshCmd()
+		}
+
+		// Esc from goto dialog: close without navigating.
+		if a.screen == screenGoto && key.Matches(msg, a.keys.Back) {
+			a.screen = a.screenBeforeOverlay
+			return a, nil
 		}
 
 		// Query log overlay toggle — only available when in split view.
@@ -437,14 +524,54 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.screen = a.screenBeforeOverlay
 		return a, nil
 
+	case views.GotoSelectedMsg:
+		a.screen = a.screenBeforeOverlay
+		if msg.Datasource != "" {
+			// Find the connection string for this datasource and emit DatasourceSelectMsg.
+			for _, ds := range a.cfg.Datasources {
+				if ds.Name == msg.Datasource {
+					return a, func() tea.Msg {
+						return views.DatasourceSelectMsg{
+							Name:             ds.Name,
+							ConnectionString: ds.ConnectionString,
+						}
+					}
+				}
+			}
+			return a, nil
+		}
+		if msg.Dataset != nil {
+			_ = a.tableList.SelectByName(msg.Dataset.Name)
+			a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *msg.Dataset)
+			sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
+			a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
+			a.rowBrowserReady = true
+			a.screen = screenSplit
+			a.focus = focusRowBrowser
+			return a, a.rowBrowser.Init()
+		}
+		return a, nil
+
+	case schemaCacheReadyMsg:
+		a.cacheLoading = false
+		return a, nil
+
+	case schemaCacheErrMsg:
+		a.cacheLoading = false
+		return a, nil
+
+	case schemaCacheRefreshedMsg:
+		a.cacheLoading = false
+		return a, nil
+
 	case views.DatasourceSelectMsg:
 		if existing, ok := a.connections[msg.Name]; ok {
 			// Reuse the existing open connection.
-			a.activateConnection(msg.Name, existing)
+			cacheCmd := a.activateConnection(msg.Name, existing)
 			a.tableList, _ = a.tableList.Update(tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
 			a.sqlPane, _ = a.sqlPane.Update(tea.WindowSizeMsg{Width: a.sqlInnerW(), Height: sqlPaneContentH})
 			a.screen = screenSplit
-			return a, a.tableList.Init()
+			return a, tea.Batch(a.tableList.Init(), cacheCmd)
 		}
 		// Begin async connect and update picker status.
 		connecting := views.DatasourceConnectingMsg{Name: msg.Name}
@@ -454,13 +581,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.DatasourceConnectedMsg:
 		a.connections[msg.Name] = msg.Client
 		a.datasourcePicker, _ = a.datasourcePicker.Update(msg)
-		a.activateConnection(msg.Name, msg.Client)
+		cacheCmd := a.activateConnection(msg.Name, msg.Client)
 		// Push current terminal size into the freshly created components — no
 		// new WindowSizeMsg arrives just because the screen transitions.
 		a.tableList, _ = a.tableList.Update(tea.WindowSizeMsg{Width: a.leftInnerW(), Height: a.modelH()})
 		a.sqlPane, _ = a.sqlPane.Update(tea.WindowSizeMsg{Width: a.sqlInnerW(), Height: sqlPaneContentH})
 		a.screen = screenSplit
-		return a, a.tableList.Init()
+		return a, tea.Batch(a.tableList.Init(), cacheCmd)
 
 	case views.DatasourceErrorMsg:
 		a.datasourcePicker, _ = a.datasourcePicker.Update(msg)
@@ -480,6 +607,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.screen == screenCellViewer {
 			a.cellViewer, _ = a.cellViewer.Update(tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
 		}
+		a.gotoModel, _ = a.gotoModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
 		return a, nil
 	}
 
@@ -508,6 +636,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.queryLogView, cmd = a.queryLogView.Update(msg)
 	case screenCellViewer:
 		a.cellViewer, cmd = a.cellViewer.Update(msg)
+	case screenGoto:
+		a.gotoModel, cmd = a.gotoModel.Update(msg)
 	}
 
 	return a, cmd
@@ -549,6 +679,8 @@ func (a *App) renderContent() string {
 		return leftPad.Render(a.queryLogView.View())
 	case screenCellViewer:
 		return a.renderCellViewer()
+	case screenGoto:
+		return a.gotoModel.View()
 	case screenError:
 		var msg string
 		if a.initErr != nil {
@@ -695,6 +827,14 @@ func (a *App) renderStatusBar() string {
 			style.StatusDesc.Render(fmt.Sprintf(" %d running: %s", count, label))
 	}
 
+	if a.cacheLoading {
+		if runningPart != "" {
+			runningPart += "  "
+		}
+		runningPart += style.StatusKey.Render(a.appSpinner.View()) +
+			style.StatusDesc.Render(" schema loading…")
+	}
+
 	if a.screen == screenSplit && a.focus == focusRowBrowser &&
 		a.rowBrowserReady && !a.rowBrowser.IsLoading() && a.rowBrowser.Err() == nil {
 		return a.renderRowBrowserStatusBar(runningPart)
@@ -708,6 +848,8 @@ func (a *App) renderStatusBar() string {
 		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.Enter}
 	case a.screen == screenQueryLog:
 		bindings = []key.Binding{a.keys.Up, a.keys.Down, a.keys.QueryLog, a.keys.Back}
+	case a.screen == screenGoto:
+		bindings = nil // hint is rendered inside the GotoModel.View()
 	case a.focus == focusTables:
 		bindings = a.keys.TableListHelp()
 	case a.focus == focusSQL:
@@ -745,13 +887,13 @@ func (a *App) renderRowBrowserStatusBar(runningPart string) string {
 	keyParts = append(keyParts,
 		style.StatusKey.Render("q")+style.StatusDesc.Render(" quit"),
 		style.StatusKey.Render("esc")+style.StatusDesc.Render(escDesc),
-		style.StatusKey.Render("[") + style.StatusDesc.Render(" prev"),
-		style.StatusKey.Render("]") + style.StatusDesc.Render(" next"),
-		style.StatusKey.Render("↑↓") + style.StatusDesc.Render(" row"),
-		style.StatusKey.Render("←→") + style.StatusDesc.Render(" col"),
-		style.StatusKey.Render("/") + style.StatusDesc.Render(" filter"),
-		style.StatusKey.Render("s") + style.StatusDesc.Render(" sort"),
-		style.StatusKey.Render("e") + style.StatusDesc.Render(" export"),
+		style.StatusKey.Render("[")+style.StatusDesc.Render(" prev"),
+		style.StatusKey.Render("]")+style.StatusDesc.Render(" next"),
+		style.StatusKey.Render("↑↓")+style.StatusDesc.Render(" row"),
+		style.StatusKey.Render("←→")+style.StatusDesc.Render(" col"),
+		style.StatusKey.Render("/")+style.StatusDesc.Render(" filter"),
+		style.StatusKey.Render("s")+style.StatusDesc.Render(" sort"),
+		style.StatusKey.Render("e")+style.StatusDesc.Render(" export"),
 	)
 	if a.rowBrowser.IsFKColumn() {
 		keyParts = append(keyParts, style.StatusKey.Render("↵")+style.StatusDesc.Render(" drill"))

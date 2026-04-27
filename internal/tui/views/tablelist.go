@@ -345,6 +345,19 @@ func (m TableListModel) DatasetCount() int { return len(m.datasets) }
 func (m TableListModel) Cursor() int       { return m.cursor }
 func (m TableListModel) Err() error        { return m.err }
 
+// SelectByName moves the cursor to the first dataset whose Name matches.
+// Returns true if found. Used by the app after a goto selection.
+func (m *TableListModel) SelectByName(name string) bool {
+	for i, ds := range m.datasets {
+		if ds.Name == name {
+			m.cursor = i
+			m.ensureCursorVisible()
+			return true
+		}
+	}
+	return false
+}
+
 // visibleLine describes one rendered line in the list.
 type visibleLine struct {
 	datasetIdx int  // header row for this dataset
