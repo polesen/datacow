@@ -34,6 +34,8 @@ check "mysql"          "command -v mysql"
 check "mysqladmin"     "command -v mysqladmin"
 check "uvx"            "command -v uvx"
 check "npx"            "command -v npx"
+check "gh"             "command -v gh"
+check "gh auth"        "gh auth status"
 
 echo ""
 echo "==> Databases"
