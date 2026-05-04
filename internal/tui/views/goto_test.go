@@ -64,7 +64,7 @@ func TestGotoModel_Ready_ShowsAllEntries(t *testing.T) {
 	cache := makeTestCache()
 	m := views.NewGotoModel(cache, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 
 	v := m.View()
 	for _, name := range []string{"users", "orders", "user_stats", "monthly_orders"} {
@@ -78,7 +78,7 @@ func TestGotoModel_Filtering(t *testing.T) {
 	cache := makeTestCache()
 	m := views.NewGotoModel(cache, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 
 	// Type "user" — should show users and user_stats but not orders or monthly_orders.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("user")})
@@ -102,12 +102,12 @@ func TestGotoModel_Ranking_ExactPrefixFirst(t *testing.T) {
 	cache := schema.NewCacheWithData(nil, datasets)
 	m := views.NewGotoModel(cache, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("orders")})
 
 	// First result should be "orders" (exact match), not the distant one.
 	// Trigger Enter on first result.
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("orders")})
 	// cursor is at 0 (first result)
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -128,8 +128,8 @@ func TestGotoModel_CursorMovement(t *testing.T) {
 	cache := makeTestCache()
 	m := views.NewGotoModel(cache, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	m.Focus() //nolint:errcheck
-	m.Focus() //nolint:errcheck // second focus resets results
+	m, _ = m.Focus()
+	m, _ = m.Focus() // second focus resets results
 
 	// Move down twice.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -144,7 +144,7 @@ func TestGotoModel_CursorMovement(t *testing.T) {
 
 	// vim keys: j = down, k = up
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
 
 	// The test verifies no panic and that the above key sequences are handled.
 }
@@ -153,7 +153,7 @@ func TestGotoModel_Enter_EmitsGotoSelectedMsg(t *testing.T) {
 	cache := makeTestCache()
 	m := views.NewGotoModel(cache, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
@@ -171,7 +171,7 @@ func TestGotoModel_Esc_EmitsNoMsg(t *testing.T) {
 	cache := makeTestCache()
 	m := views.NewGotoModel(cache, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if cmd != nil {
@@ -195,7 +195,7 @@ func TestGotoModel_Scroll(t *testing.T) {
 	cache := schema.NewCacheWithData(nil, datasets)
 	m := views.NewGotoModel(cache, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 50})
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 
 	// Navigate down 14 times to reach the last entry.
 	for range 14 {
@@ -216,7 +216,7 @@ func TestGotoModel_ColumnEntry_NavigatesToParentTable(t *testing.T) {
 	cache := makeTestCache()
 	m := views.NewGotoModel(cache, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 
 	// Search for "email" to find users.email column entry.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("email")})
@@ -248,7 +248,7 @@ func TestGotoModel_DatasourceEntries(t *testing.T) {
 	}
 	m := views.NewGotoModel(cache, datasources)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 
 	// Datasource entries should appear when query is empty.
 	v := m.View()
@@ -267,7 +267,7 @@ func TestGotoModel_DatasourceSelect_EmitsCorrectMsg(t *testing.T) {
 	}
 	m := views.NewGotoModel(cache, datasources)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
-	m.Focus() //nolint:errcheck
+	m, _ = m.Focus()
 
 	// First result should be the "production" datasource.
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})

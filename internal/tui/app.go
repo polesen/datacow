@@ -341,7 +341,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if tickMsg, ok := msg.(spinner.TickMsg); ok {
 		a.appSpinner, cmd = a.appSpinner.Update(tickMsg)
 		if a.queryLog != nil {
-			a.queryLogView.SetSpinChar(a.appSpinner.View())
+			a.queryLogView = a.queryLogView.SetSpinChar(a.appSpinner.View())
 		}
 		a.tableList, _ = a.tableList.Update(msg)
 		if a.rowBrowserReady {
@@ -365,7 +365,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.screen = screenGoto
 			a.gotoModel, _ = a.gotoModel.Update(
 				tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
-			return a, a.gotoModel.Focus()
+			var focusCmd tea.Cmd
+			a.gotoModel, focusCmd = a.gotoModel.Focus()
+			return a, focusCmd
 		}
 
 		// ctrl+r: trigger schema refresh when a connection is active.
@@ -541,7 +543,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		if msg.Dataset != nil {
-			_ = a.tableList.SelectByName(msg.Dataset.Name)
+			a.tableList, _ = a.tableList.SelectByName(msg.Dataset.Name)
 			a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *msg.Dataset)
 			sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 			a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
