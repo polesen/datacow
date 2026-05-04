@@ -386,7 +386,7 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 		}
 
 	case key.Matches(msg, m.keys.Sort):
-		m.cycleSort()
+		m = m.cycleSort()
 		m.statusMsg = ""
 		if m.executor != nil {
 			m.loading = true
@@ -577,9 +577,9 @@ func (m RowBrowserModel) popDrillStack() (RowBrowserModel, tea.Cmd) {
 
 // cycleSort advances the sort state for the column at colCursor:
 // no sort → ASC → DESC → no sort.
-func (m *RowBrowserModel) cycleSort() {
+func (m RowBrowserModel) cycleSort() RowBrowserModel {
 	if m.result == nil || m.colCursor >= len(m.result.Columns) {
-		return
+		return m
 	}
 	col := m.result.Columns[m.colCursor].Name
 	if m.sort == nil || m.sort.Column != col {
@@ -589,6 +589,7 @@ func (m *RowBrowserModel) cycleSort() {
 	} else {
 		m.sort = nil
 	}
+	return m
 }
 
 func (m RowBrowserModel) startExport(format export.Format) (RowBrowserModel, tea.Cmd) {

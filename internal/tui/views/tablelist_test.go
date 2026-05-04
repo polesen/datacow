@@ -295,7 +295,7 @@ func TestTableListModel_SelectByName_Found(t *testing.T) {
 		{Name: "products", Table: "products"},
 	}))
 
-	found := m.SelectByName("orders")
+	m, found := m.SelectByName("orders")
 	if !found {
 		t.Error("SelectByName('orders') should return true")
 	}
@@ -310,7 +310,7 @@ func TestTableListModel_SelectByName_NotFound(t *testing.T) {
 		{Name: "users", Table: "users"},
 	}))
 
-	found := m.SelectByName("nonexistent")
+	_, found := m.SelectByName("nonexistent")
 	if found {
 		t.Error("SelectByName('nonexistent') should return false")
 	}

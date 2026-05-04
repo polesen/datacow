@@ -178,7 +178,7 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.ensureCursorVisible()
+		m = m.ensureCursorVisible()
 		return m, nil
 
 	case spinner.TickMsg:
@@ -253,12 +253,12 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Up):
 			if m.cursor > 0 {
 				m.cursor--
-				m.ensureCursorVisible()
+				m = m.ensureCursorVisible()
 			}
 		case key.Matches(msg, m.keys.Down):
 			if m.cursor < len(m.datasets)-1 {
 				m.cursor++
-				m.ensureCursorVisible()
+				m = m.ensureCursorVisible()
 			}
 		case key.Matches(msg, m.keys.Right):
 			if m.FocusedExpandable() && !m.FocusedExpanded() {
@@ -267,7 +267,7 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Left):
 			if m.FocusedExpanded() {
 				m.tree[m.cursor].expanded = false
-				m.ensureCursorVisible()
+				m = m.ensureCursorVisible()
 			}
 		}
 		return m, nil
@@ -316,14 +316,14 @@ func (m TableListModel) expandFocused() (TableListModel, tea.Cmd) {
 			cmds = append(cmds, c)
 		}
 	}
-	m.ensureCursorVisible()
+	m = m.ensureCursorVisible()
 	if len(cmds) == 0 {
 		return m, nil
 	}
 	return m, tea.Batch(cmds...)
 }
 
-func (m *TableListModel) anyLoading() bool {
+func (m TableListModel) anyLoading() bool {
 	for _, n := range m.tree {
 		if n.expState == expLoading || n.indexState == indexLoading {
 			return true
@@ -347,15 +347,15 @@ func (m TableListModel) Err() error        { return m.err }
 
 // SelectByName moves the cursor to the first dataset whose Name matches.
 // Returns true if found. Used by the app after a goto selection.
-func (m *TableListModel) SelectByName(name string) bool {
+func (m TableListModel) SelectByName(name string) (TableListModel, bool) {
 	for i, ds := range m.datasets {
 		if ds.Name == name {
 			m.cursor = i
-			m.ensureCursorVisible()
-			return true
+			m = m.ensureCursorVisible()
+			return m, true
 		}
 	}
-	return false
+	return m, false
 }
 
 // visibleLine describes one rendered line in the list.
@@ -441,10 +441,10 @@ func (m TableListModel) subLines(idx int, ds dataset.Dataset) []string {
 	return lines
 }
 
-func (m *TableListModel) ensureCursorVisible() {
+func (m TableListModel) ensureCursorVisible() TableListModel {
 	if m.height <= 0 {
 		m.scrollOffset = 0
-		return
+		return m
 	}
 	lines := m.buildLines()
 	// Find the line index of the cursor's header row.
@@ -456,7 +456,7 @@ func (m *TableListModel) ensureCursorVisible() {
 		}
 	}
 	if cursorLine < 0 {
-		return
+		return m
 	}
 	if cursorLine < m.scrollOffset {
 		m.scrollOffset = cursorLine
@@ -466,6 +466,7 @@ func (m *TableListModel) ensureCursorVisible() {
 	m.scrollOffset = max(m.scrollOffset, 0)
 	maxOffset := max(len(lines)-m.height, 0)
 	m.scrollOffset = min(m.scrollOffset, maxOffset)
+	return m
 }
 
 func (m TableListModel) View() string {

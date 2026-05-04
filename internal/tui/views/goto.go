@@ -51,12 +51,13 @@ func NewGotoModel(cache *schema.Cache, datasources []config.DatasourceConfig) Go
 
 // Focus focuses the text input and resets the dialog state.
 // Returns a tea.Cmd for the cursor blink tick.
-func (m *GotoModel) Focus() tea.Cmd {
+func (m GotoModel) Focus() (GotoModel, tea.Cmd) {
 	m.input.SetValue("")
 	m.cursor = 0
 	m.scrollOffset = 0
-	m.refreshResults()
-	return m.input.Focus()
+	m = m.refreshResults()
+	cmd := m.input.Focus()
+	return m, cmd
 }
 
 // Update implements tea.Model for GotoModel.
@@ -74,14 +75,14 @@ func (m GotoModel) Update(msg tea.Msg) (GotoModel, tea.Cmd) {
 		case msg.Type == tea.KeyUp || (msg.Type == tea.KeyRunes && msg.String() == "k"):
 			if m.cursor > 0 {
 				m.cursor--
-				m.ensureCursorVisible()
+				m = m.ensureCursorVisible()
 			}
 			return m, nil
 
 		case msg.Type == tea.KeyDown || (msg.Type == tea.KeyRunes && msg.String() == "j"):
 			if m.cursor < len(m.results)-1 {
 				m.cursor++
-				m.ensureCursorVisible()
+				m = m.ensureCursorVisible()
 			}
 			return m, nil
 
@@ -101,7 +102,7 @@ func (m GotoModel) Update(msg tea.Msg) (GotoModel, tea.Cmd) {
 		default:
 			var tiCmd tea.Cmd
 			m.input, tiCmd = m.input.Update(msg)
-			m.refreshResults()
+			m = m.refreshResults()
 			m.cursor = 0
 			m.scrollOffset = 0
 			return m, tiCmd
@@ -271,13 +272,12 @@ func kindGotoBadge(k schema.EntryKind) string {
 }
 
 // refreshResults rebuilds m.results from the current cache state and input query.
-// Must be called on a pointer receiver.
-func (m *GotoModel) refreshResults() {
+func (m GotoModel) refreshResults() GotoModel {
 	query := m.input.Value()
 
 	if m.cache == nil || !m.cache.Ready() {
 		m.results = nil
-		return
+		return m
 	}
 
 	cacheResults := m.cache.Search(query)
@@ -295,7 +295,7 @@ func (m *GotoModel) refreshResults() {
 		}
 		results = append(results, cacheResults...)
 		m.results = results
-		return
+		return m
 	}
 
 	// Fuzzy-match datasource names and prepend scored results.
@@ -324,13 +324,15 @@ func (m *GotoModel) refreshResults() {
 	if m.cursor >= len(m.results) && len(m.results) > 0 {
 		m.cursor = len(m.results) - 1
 	}
+	return m
 }
 
 // ensureCursorVisible adjusts scrollOffset so the cursor row is visible.
-func (m *GotoModel) ensureCursorVisible() {
+func (m GotoModel) ensureCursorVisible() GotoModel {
 	if m.cursor < m.scrollOffset {
 		m.scrollOffset = m.cursor
 	} else if m.cursor >= m.scrollOffset+gotoMaxVisible {
 		m.scrollOffset = m.cursor - gotoMaxVisible + 1
 	}
+	return m
 }

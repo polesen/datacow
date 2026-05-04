@@ -53,8 +53,9 @@ func (v QueryLogView) Update(msg tea.Msg) (QueryLogView, tea.Cmd) {
 }
 
 // SetSpinChar updates the spinner character shown next to running queries.
-func (v *QueryLogView) SetSpinChar(s string) {
+func (v QueryLogView) SetSpinChar(s string) QueryLogView {
 	v.spinChar = s
+	return v
 }
 
 // View renders the query log panel.
