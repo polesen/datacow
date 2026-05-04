@@ -246,6 +246,51 @@ When you learn something that should persist across sessions and environments:
 - **Keybindings configurable** — don't hardcode key handlers, route through a keybindings registry.
 - **Tests own their fixtures.** Create tables in test setup via `client.Query(ctx, "CREATE TABLE IF NOT EXISTS ...")` and drop them in `t.Cleanup`. Never seed via CI workflow steps or rely on tables left by other test packages. See `internal/core/db/postgres_test.go` for the pattern.
 
+## Go Idioms
+
+Rules sourced from [Effective Go](https://go.dev/doc/effective_go) and [Code Review Comments](https://go.dev/wiki/CodeReviewComments). These are the rules most likely to be violated without an explicit reminder.
+
+### Optional / absent values
+- **No sentinel integers.** Don't use `-1`, `0`, or `""` to mean "not present". Use `*T` for optional struct fields (`nil` = absent, non-nil including zero = present-and-known). Use `(value, ok bool)` for optional function returns.
+- The `*time.Time`, `*int64` pattern in this codebase is correct. Apply it consistently.
+
+### Errors
+- Error strings must be **lowercase and have no trailing punctuation** — they get wrapped: `fmt.Errorf("connect: %w", err)` not `"Connect failed."`.
+- **Error path first, normal path continues** — avoid `else` after a `return`/`continue`/`break`:
+  ```go
+  if err != nil {
+      return err
+  }
+  // normal code here, not in else
+  ```
+- No `panic` for normal error handling. Only in truly unrecoverable situations.
+
+### Naming
+- **Initialisms are all-caps:** `URL`, `HTTP`, `ID`, `SQL` — never `Url`, `Http`, `Id`, `Sql`.
+- **Receiver names:** 1–2 letter abbreviation, consistent across all methods of a type. Never `self` or `this`.
+- **No `Get` prefix on getters:** `Owner()` not `GetOwner()`. Setter is `SetOwner()`.
+- **One-method interfaces** take the method name + `-er`: `Reader`, `Writer`, `Closer`, `Stringer`.
+- **Avoid package names** like `util`, `common`, `misc`, `types`, `helpers`.
+
+### Interfaces
+- Define interfaces in the package that **uses** values, not the package that implements them.
+- Don't define interfaces before there is a concrete use for them.
+- Verify interface satisfaction at compile time when there's no other static check: `var _ db.Client = (*postgresClient)(nil)`.
+
+### Receivers
+- **Default to pointer receivers.** Use a value receiver only for small, naturally immutable types (e.g. a type wrapping a single `int`).
+- Never mix pointer and value receivers on the same type.
+- Must use pointer receiver if the method mutates state or the struct contains a `sync` type.
+
+### Concurrency
+- `context.Context` is always the **first parameter**, never stored in a struct.
+- Make goroutine lifetimes explicit — document when and how they exit.
+- Prefer synchronous functions; let callers add concurrency if they need it.
+
+### Zero values
+- Design types so the zero value is useful and ready to use (like `sync.Mutex`, `bytes.Buffer`).
+- Prefer `var s []string` over `s := []string{}` for empty slices — nil slice is idiomatic unless you need non-nil for JSON encoding.
+
 ## Current Status
 
 @tasks/README.md
