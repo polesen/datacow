@@ -244,6 +244,7 @@ When you learn something that should persist across sessions and environments:
 - **Table-driven tests** for core logic. No mocks for DB — use test containers or real DBs.
 - **No global state.** Pass dependencies explicitly (factory pattern, like gh CLI).
 - **Keybindings configurable** — don't hardcode key handlers, route through a keybindings registry.
+- **New TUI features get a keybinding and a help entry.** When adding any user-visible action: add a `key.Binding` to `keys.Map`, wire it through `Update()`, and add it to the relevant group in `views/helpoverlay.go`. Do not add actions that are only reachable by reading the source code.
 - **Tests own their fixtures.** Create tables in test setup via `client.Query(ctx, "CREATE TABLE IF NOT EXISTS ...")` and drop them in `t.Cleanup`. Never seed via CI workflow steps or rely on tables left by other test packages. See `internal/core/db/postgres_test.go` for the pattern.
 
 ## Current Status
