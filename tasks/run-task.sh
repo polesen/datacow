@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Load local env so GITHUB_TOKEN and other vars are available to the devcontainer CLI
+# Load local env so GITHUB_TOKEN and other vars are available to the devcontainer CLI.
+# GITHUB_TOKEN is defined without `export` in .env.local to avoid polluting the host gh auth;
+# export it explicitly here so the devcontainer CLI picks it up.
 if [ -f ".env.local" ]; then
   source .env.local
+  export GITHUB_TOKEN
 fi
 
 usage() {
