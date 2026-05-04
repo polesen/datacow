@@ -19,7 +19,7 @@ func (e *Exporter) exportExcel(ctx context.Context, ds dataset.Dataset, opts dat
 	err := e.forEachPage(ctx, ds, opts, func(columns []string, rows []map[string]any, first bool) error {
 		if first {
 			for i, col := range columns {
-				cell, _ := excelize.CoordinatesToCellName(i+1, rowNum)
+				cell, _ := excelize.CoordinatesToCellName(i+1, rowNum) // error only when coords ≤ 0, impossible here
 				if err := f.SetCellValue(sheet, cell, col); err != nil {
 					return fmt.Errorf("write header: %w", err)
 				}
@@ -28,7 +28,7 @@ func (e *Exporter) exportExcel(ctx context.Context, ds dataset.Dataset, opts dat
 		}
 		for _, row := range rows {
 			for i, col := range columns {
-				cell, _ := excelize.CoordinatesToCellName(i+1, rowNum)
+				cell, _ := excelize.CoordinatesToCellName(i+1, rowNum) // error only when coords ≤ 0, impossible here
 				v := row[col]
 				var val any
 				if b, ok := v.([]byte); ok {

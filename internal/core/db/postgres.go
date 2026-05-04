@@ -9,6 +9,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+var _ Client = (*postgresClient)(nil)
+
 type postgresClient struct {
 	db *sql.DB
 }

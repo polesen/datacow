@@ -44,8 +44,8 @@ func main() {
 }
 
 func runTUI(cmd *cobra.Command, args []string) error {
-	connStr, _ := cmd.Flags().GetString("connection-string")
-	configPath, _ := cmd.Flags().GetString("config")
+	connStr, _ := cmd.Flags().GetString("connection-string")   // error only if flag unregistered or wrong type, impossible here
+	configPath, _ := cmd.Flags().GetString("config")           // same
 
 	cfg, err := loadConfig(configPath)
 	if err != nil {

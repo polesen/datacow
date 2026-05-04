@@ -8,6 +8,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+var _ Client = (*mysqlClient)(nil)
+
 type mysqlClient struct {
 	db *sql.DB
 }

@@ -264,6 +264,7 @@ Rules sourced from [Effective Go](https://go.dev/doc/effective_go) and [Code Rev
   // normal code here, not in else
   ```
 - No `panic` for normal error handling. Only in truly unrecoverable situations.
+- **Discarded errors need a comment.** When discarding an error with `_`, add a brief comment explaining why it is structurally impossible: `// error only if coords ≤ 0, never the case here`. Silent discards look like oversights.
 
 ### Naming
 - **Initialisms are all-caps:** `URL`, `HTTP`, `ID`, `SQL` — never `Url`, `Http`, `Id`, `Sql`.
@@ -275,11 +276,15 @@ Rules sourced from [Effective Go](https://go.dev/doc/effective_go) and [Code Rev
 ### Interfaces
 - Define interfaces in the package that **uses** values, not the package that implements them.
 - Don't define interfaces before there is a concrete use for them.
-- Verify interface satisfaction at compile time when there's no other static check: `var _ db.Client = (*postgresClient)(nil)`.
+- **Always add a compile-time satisfaction check** in the same file as the implementation:
+  ```go
+  var _ Client = (*postgresClient)(nil)
+  ```
+  This catches broken implementations at compile time rather than at first use.
 
 ### Receivers
 - **Default to pointer receivers.** Use a value receiver only for small, naturally immutable types (e.g. a type wrapping a single `int`).
-- Never mix pointer and value receivers on the same type.
+- **Never mix pointer and value receivers on the same type.** Pick one and apply it to all methods. For Bubble Tea models specifically, use all value receivers — Bubble Tea passes models by value and `Update` returns a new copy.
 - Must use pointer receiver if the method mutates state or the struct contains a `sync` type.
 
 ### Concurrency

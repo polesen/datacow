@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+var _ Client = (*LoggingClient)(nil)
+
 // LoggingClient wraps a db.Client and logs all calls to a QueryLog.
 type LoggingClient struct {
 	inner Client
