@@ -117,3 +117,9 @@ Manual:
 4. Press `Esc` → returns to previous screen.
 5. Press `?` while in query log or cell viewer → nothing happens (key ignored).
 6. Resize the terminal while the overlay is open → layout adapts cleanly.
+
+## After completing this task
+
+Add the following convention to the `## Conventions` section of `CLAUDE.md` and commit it:
+
+> **New TUI features get a keybinding and a help entry.** When adding any user-visible action: add a `key.Binding` to `keys.Map`, wire it through `Update()`, and add it to the relevant group in `views/helpoverlay.go`. Do not add actions that are only reachable by reading the source code.
