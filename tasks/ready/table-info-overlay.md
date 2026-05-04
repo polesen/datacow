@@ -30,11 +30,11 @@ type StatsProvider interface {
 }
 
 type TableStats struct {
-    RowEstimate  int64      // planner/autovacuum estimate; -1 = unknown
-    TotalBytes   int64      // table + indexes + TOAST/overflow; -1 = unknown
-    TableBytes   int64      // data pages only; -1 = unknown
-    IndexBytes   int64      // all indexes; -1 = unknown
-    FreeBytes    int64      // unused/fragmented space; -1 = unknown
+    RowEstimate  *int64     // planner/autovacuum estimate; nil = unknown
+    TotalBytes   *int64     // table + indexes + TOAST/overflow; nil = unknown
+    TableBytes   *int64     // data pages only; nil = unknown
+    IndexBytes   *int64     // all indexes; nil = unknown
+    FreeBytes    *int64     // unused/fragmented space; nil = unknown
     Description  string     // table comment or description; "" = none
     LastAnalyzed *time.Time // nil = unknown
     LastVacuumed *time.Time // nil = unknown (PostgreSQL only)
@@ -44,7 +44,7 @@ type TableStats struct {
 }
 ```
 
-Use `-1` (not `0`) for unknown numeric fields — `0` is a valid size for an empty table.
+Use `*int64` for all nullable numeric fields — `nil` means absent, a non-nil pointer to `0` means "confirmed empty". This is consistent with how `LastAnalyzed`, `LastVacuumed`, and `NextAutoIncr` are already typed, and is idiomatic Go. Never use `-1` as a sentinel.
 
 ### 3. PostgreSQL implementation
 
@@ -69,9 +69,9 @@ WHERE n.nspname = 'public'
   AND c.relkind = 'r'
 ```
 
-Fields not available in PostgreSQL: `FreeBytes`, `CreatedAt`, `Engine`, `NextAutoIncr` — set to `-1` / `nil` / `""`.
+Fields not available in PostgreSQL: `FreeBytes`, `CreatedAt`, `Engine`, `NextAutoIncr` — leave as `nil` / `""`.
 
-Note: `reltuples` is `-1` for a brand-new table that has never been analyzed. Map `reltuples < 0` → `RowEstimate = -1`.
+Note: `reltuples` is `-1` in the catalog for a brand-new table that has never been analyzed. Map `reltuples < 0` → `RowEstimate = nil`.
 
 ### 4. MySQL implementation
 
@@ -197,11 +197,12 @@ If `StatsProvider` is not implemented, show:
 | < 1 099 511 627 776 | `N.N GB` | `3.2 GB` |
 | ≥ 1 099 511 627 776 | `N.N TB` | `1.8 TB` |
 
-**Row estimate formatting** — `formatEstimate(n int64) string`:
-- `-1` → omit field
-- `0` → `"0"` (empty table, known)
+**Row estimate formatting** — `formatEstimate(n int64) string` (called only when `RowEstimate != nil`):
+- `0` → `"0"` (confirmed empty table)
 - < 1 000 → exact number, no prefix
 - ≥ 1 000 → `"~N"` with K/M/G suffix: `~42K`, `~1.2M`, `~3.4B`
+
+`formatBytes` is called only when the field is non-nil. Nil fields are omitted from the display entirely.
 
 The `~` signals it is an estimate, not a precise count.
 
@@ -241,8 +242,8 @@ Each time the overlay opens, reset and reload — do not cache between opens. Sc
 `internal/core/db/mysql_test.go` — same pattern with MySQL equivalents.
 
 `internal/tui/views/tableinfo_test.go`:
-- `TestFormatBytes` — table-driven: each size tier, boundary values (1023, 1024, etc.), `-1`.
-- `TestFormatEstimate` — table-driven: -1, 0, 999, 1000, 999999, 1000000, negative.
+- `TestFormatBytes` — table-driven: each size tier, boundary values (1023, 1024, etc.), 0.
+- `TestFormatEstimate` — table-driven: 0, 999, 1000, 999999, 1000000.
 
 ## Definition of Done
 
