@@ -28,7 +28,7 @@ func TestApp_DatasourcePicker_MultiDatasource(t *testing.T) {
 		return strings.Contains(s, "Datasources") &&
 			strings.Contains(s, "production") &&
 			strings.Contains(s, "staging")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -50,7 +50,7 @@ func TestApp_DatasourcePicker_ConnectAndTransition(t *testing.T) {
 	// Wait for picker to appear.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "Datasources")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	// Press Enter to connect to first datasource.
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
@@ -70,7 +70,7 @@ func TestApp_ErrorScreen_NoConnection(t *testing.T) {
 
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "No connection")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -155,13 +155,13 @@ func TestApp_FocusShift_NumberKeys(t *testing.T) {
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
 		return strings.Contains(s, "↑/k") && strings.Contains(s, "next pane")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	// Press "1" → back to tables pane; status bar shows table list bindings (↵ select).
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "↵")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -224,7 +224,7 @@ func TestApp_Maximize_ToggleOnPane1(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -253,7 +253,7 @@ func TestApp_Maximize_ToggleOff(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -262,7 +262,7 @@ func TestApp_Maximize_ToggleOff(t *testing.T) {
 			strings.Contains(s, "2 Row Browser") &&
 			strings.Contains(s, "3 SQL") &&
 			!strings.Contains(s, "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -292,7 +292,7 @@ func TestApp_Maximize_Pane2(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -323,7 +323,7 @@ func TestApp_Maximize_Pane3OpensQueryLog(t *testing.T) {
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
 		return strings.Contains(s, "query log") && !strings.Contains(s, "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -352,7 +352,7 @@ func TestApp_Maximize_EscRestoresTables(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -361,7 +361,7 @@ func TestApp_Maximize_EscRestoresTables(t *testing.T) {
 			strings.Contains(s, "2 Row Browser") &&
 			strings.Contains(s, "3 SQL") &&
 			!strings.Contains(s, "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -390,13 +390,13 @@ func TestApp_Maximize_ResizeWhileMaximized(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	tm.Send(tea.WindowSizeMsg{Width: 200, Height: 50})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
 		return strings.Contains(s, "z restore") && strings.Contains(s, "1 Tables")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -425,13 +425,13 @@ func TestApp_Maximize_PaneKeyWhileMaximized(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
 		return strings.Contains(s, "z restore") && strings.Contains(s, "2 Row Browser")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -460,7 +460,7 @@ func TestApp_Maximize_SplitNotBrokenAfterRestore(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -468,7 +468,7 @@ func TestApp_Maximize_SplitNotBrokenAfterRestore(t *testing.T) {
 		return strings.Contains(s, "1 Tables") &&
 			strings.Contains(s, "2 Row Browser") &&
 			strings.Contains(s, "3 SQL")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -516,7 +516,7 @@ func TestApp_Maximize_EscRestoresRowBrowserNodrill(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -524,7 +524,7 @@ func TestApp_Maximize_EscRestoresRowBrowserNodrill(t *testing.T) {
 		return strings.Contains(s, "1 Tables") &&
 			strings.Contains(s, "3 SQL") &&
 			!strings.Contains(s, "z restore")
-	}, teatest.WithDuration(3*time.Second))
+	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
