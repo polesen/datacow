@@ -6,6 +6,14 @@ Like [k9s](https://github.com/derailed/k9s) or [lazygit](https://github.com/jess
 
 ---
 
+> **Experiment in progress**
+>
+> A deliberate exploration of how far vibe coding can go with current AI tooling. Every line of code, architecture, tests, and documentation were produced by Claude (Anthropic) — no code written by hand. The guidance comes from years of hands-on experience across languages, architecture, and testing.
+>
+> The tool is real and usable. The experiment is ongoing.
+
+---
+
 ## Features
 
 - **Zero-config** — point at a connection string, auto-discovers all tables and views
@@ -120,8 +128,6 @@ Early development. Core TUI is functional and usable against PostgreSQL and MySQ
 **Implemented:** TUI, PostgreSQL + MySQL drivers, filter/sort/export, FK drill-down, query log, cell viewer, schema explorer, multi-datasource, YAML config + custom datasets.
 
 **Planned:** HTTP API, web app, natural language filtering via LLM.
-
-This project is developed with AI assistance.
 
 ---
 
