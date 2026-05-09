@@ -38,7 +38,7 @@ func TestCache_NotReadyBeforeLoad(t *testing.T) {
 func TestCache_ReadyAfterLoad(t *testing.T) {
 	client := openPostgres(t)
 	ctx := context.Background()
-	setupCacheTables(t, client, ctx)
+	setupCacheTables(t, ctx, client)
 
 	resolver := dataset.NewResolver(client, nil, "")
 	c := schema.NewCache()
@@ -53,7 +53,7 @@ func TestCache_ReadyAfterLoad(t *testing.T) {
 func TestCache_LoadPopulatesEntries(t *testing.T) {
 	client := openPostgres(t)
 	ctx := context.Background()
-	setupCacheTables(t, client, ctx)
+	setupCacheTables(t, ctx, client)
 
 	resolver := dataset.NewResolver(client, nil, "")
 	c := schema.NewCache()
@@ -269,7 +269,7 @@ func TestCache_Refresh_UpdatesEntries(t *testing.T) {
 func TestCache_ThreadSafety(t *testing.T) {
 	client := openPostgres(t)
 	ctx := context.Background()
-	setupCacheTables(t, client, ctx)
+	setupCacheTables(t, ctx, client)
 
 	resolver := dataset.NewResolver(client, nil, "")
 	c := schema.NewCache()
@@ -305,7 +305,7 @@ func TestCache_ThreadSafety(t *testing.T) {
 }
 
 // setupCacheTables creates the shared test tables used across multiple tests.
-func setupCacheTables(t *testing.T, client db.Client, ctx context.Context) {
+func setupCacheTables(t *testing.T, ctx context.Context, client db.Client) {
 	t.Helper()
 	for _, stmt := range []string{
 		"DROP TABLE IF EXISTS cache_orders",
