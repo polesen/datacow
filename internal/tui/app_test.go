@@ -177,15 +177,15 @@ func TestApp_TableList_WithRealDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	defer func() { _ = client.Close() }()
-
 	ctx := context.Background()
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS tui_test_items")
+		_ = client.Close()
+	}()
+
 	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS tui_test_items (id SERIAL PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("create fixture: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS tui_test_items")
-	})
 
 	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
 	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
@@ -485,7 +485,10 @@ func TestApp_Maximize_EscRestoresRowBrowserNodrill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	defer func() { _ = client.Close() }()
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS maximize_esc_rows")
+		_ = client.Close()
+	}()
 
 	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS maximize_esc_rows (id SERIAL PRIMARY KEY, label TEXT)"); err != nil {
 		t.Fatalf("create fixture: %v", err)
@@ -493,9 +496,6 @@ func TestApp_Maximize_EscRestoresRowBrowserNodrill(t *testing.T) {
 	if _, err := client.Query(ctx, "INSERT INTO maximize_esc_rows (label) VALUES ('a') ON CONFLICT DO NOTHING"); err != nil {
 		t.Fatalf("insert fixture: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS maximize_esc_rows")
-	})
 
 	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
 	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
@@ -587,6 +587,125 @@ func TestApp_QueryLog_LKeyFromPane2(t *testing.T) {
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
 		return strings.Contains(s, "History") && strings.Contains(s, "Running")
+	}, teatest.WithDuration(5*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_HelpOverlay_OpensAndCloses(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Press ? — help overlay must render with keybinding sections.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "Keybindings") && strings.Contains(s, "Navigation")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Press ? again — help overlay closes, split view returns.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "1 Tables") && !strings.Contains(s, "Keybindings")
+	}, teatest.WithDuration(5*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_GotoOverlay_OpensWithCtrlP(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Press ctrl+p — goto dialog must open.
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlP})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "Goto")
+	}, teatest.WithDuration(5*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_CellViewer_OpensFromRowBrowser(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	// Drop before Close so the cleanup actually executes — t.Cleanup runs after defer,
+	// by which point the client is already closed and queries silently fail.
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS cell_viewer_test")
+		_ = client.Close()
+	}()
+
+	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS cell_viewer_test (id SERIAL PRIMARY KEY, notes TEXT)"); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	if _, err := client.Query(ctx, "INSERT INTO cell_viewer_test (notes) VALUES ('hello from cell viewer') ON CONFLICT DO NOTHING"); err != nil {
+		t.Fatalf("insert fixture: %v", err)
+	}
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	// Wait for fixture table to appear in the table list.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "cell_viewer_test")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Open the row browser for our fixture table.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	// Wait for both the row browser header and rows to have loaded (status line shows "page 1/").
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "2 cell_viewer_test") && strings.Contains(s, "page 1/")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Press 'v' to open the cell viewer. The footer should show save/copy/close hints.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "save") && strings.Contains(s, "copy") && strings.Contains(s, "close")
 	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
