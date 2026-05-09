@@ -108,12 +108,6 @@ func TestCellViewerModel_EscCancelsSavePrompt(t *testing.T) {
 // TestCellViewerModel_ScrollChangesContent verifies that scrolling moves the
 // visible window through the content — the top line changes after scrolling down.
 func TestCellViewerModel_ScrollChangesContent(t *testing.T) {
-	// Build a tall content block: 40 numbered lines.
-	var lines []string
-	for i := range 40 {
-		lines = append(lines, strings.Repeat("x", 10))
-		_ = i
-	}
 	// Use distinct first and last lines so we can identify the scroll position.
 	raw := []byte("line-FIRST\n" + strings.Repeat("middle\n", 38) + "line-LAST")
 	m := newCellViewer("t", "col", "text", raw)
