@@ -529,3 +529,66 @@ func TestApp_Maximize_EscRestoresRowBrowserNodrill(t *testing.T) {
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
+
+// TestApp_QueryLog_LKeyFromPane1 is the regression test for the bug where pressing
+// L from pane 1 or 2 rendered a blank query log because no WindowSizeMsg was sent.
+func TestApp_QueryLog_LKeyFromPane1(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Pane 1 is focused by default. Press L — query log must render with content.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "History") && strings.Contains(s, "Running")
+	}, teatest.WithDuration(5*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_QueryLog_LKeyFromPane2(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(120, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Switch to pane 2, then press L.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "History") && strings.Contains(s, "Running")
+	}, teatest.WithDuration(5*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
