@@ -68,7 +68,8 @@ func (m SQLPaneModel) View() string {
 		m.cursor = maxCursor
 	}
 
-	sqlW := m.width - 22
+	// Reserve space for: 3-space prefix + 9-char timestamp + 8-char duration + 12-char label + 3 separators.
+	sqlW := m.width - 31
 	if sqlW < 10 {
 		sqlW = 10
 	}
@@ -87,19 +88,25 @@ func (m SQLPaneModel) View() string {
 		lines = append(lines, style.StatusKey.Render(line))
 	}
 
+	// Oldest-first: iterate from the end of history (oldest) to index 0 (newest),
+	// so each appended line is more recent — newest ends up at the bottom (live-feed style).
 	for i := len(history) - 1; i >= 0; i-- {
 		if len(lines) >= m.height {
 			break
 		}
 		e := history[i]
 		displayPos := len(history) - 1 - i
-		line := fmt.Sprintf("   %-8s %-12s %s",
+		ts := e.StartedAt.Format("15:04:05")
+		line := fmt.Sprintf("   %s %-8s %-12s %s",
+			ts,
 			formatDuration(e.Duration),
 			truncate(e.Label, 12),
 			truncate(e.SQL, sqlW),
 		)
 		if m.focused && displayPos == m.cursor {
 			lines = append(lines, style.RowSelected.Width(m.width).Render(line))
+		} else if e.Error != nil {
+			lines = append(lines, style.Error.Render(line))
 		} else {
 			lines = append(lines, style.StatusDesc.Render(line))
 		}

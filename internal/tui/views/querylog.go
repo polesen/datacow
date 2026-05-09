@@ -91,23 +91,36 @@ func (v QueryLogView) View() string {
 	sb.WriteString("\n")
 
 	// --- History section ---
-	sb.WriteString(style.ColHeader.Render("History"))
+	// history is []QueryEntry newest-first (index 0 = newest); iterate forward so newest appears at the top.
+	sb.WriteString(style.ColHeader.Render("History  (newest first)"))
 	sb.WriteString("\n")
 	if len(history) == 0 {
 		sb.WriteString("  (none)\n")
 	} else {
 		for i, e := range history {
-			dur := formatDuration(e.Duration)
+			ts := e.StartedAt.Format("15:04:05")
 			kind := kindBadge(e.Kind)
-			rows := formatRowCount(e.RowCount)
-			line := fmt.Sprintf("  %-6s %-30s %-14s %s",
-				dur,
+
+			var durField, rowField string
+			if e.Error != nil {
+				durField = "ERR"
+				rowField = truncate(e.Error.Error(), 14)
+			} else {
+				durField = formatDuration(e.Duration)
+				rowField = formatRowCount(e.RowCount)
+			}
+
+			line := fmt.Sprintf("  %-8s %-6s %-30s %-14s %s",
+				ts,
+				durField,
 				truncate(e.Label, 30),
-				rows,
+				rowField,
 				kind,
 			)
 			if i == v.cursor {
 				line = style.RowSelected.Render(line)
+			} else if e.Error != nil {
+				line = style.Error.Render(line)
 			} else {
 				line = style.RowNormal.Render(line)
 			}
@@ -118,8 +131,25 @@ func (v QueryLogView) View() string {
 	// --- SQL preview ---
 	if len(history) > 0 && v.cursor < len(history) {
 		selected := history[v.cursor]
-		if selected.SQL != "" {
+		sb.WriteString("\n")
+
+		atLine := fmt.Sprintf("At: %s  Duration: %s",
+			selected.StartedAt.Format("15:04:05"),
+			formatDuration(selected.Duration),
+		)
+		sb.WriteString(style.StatusDesc.Render(atLine))
+		sb.WriteString("\n")
+
+		if selected.Error != nil {
+			sb.WriteString(style.StatusKey.Render("Error: "))
+			maxW := v.width - 7
+			if maxW < 20 {
+				maxW = 20
+			}
+			sb.WriteString(style.Error.Render(truncate(selected.Error.Error(), maxW)))
 			sb.WriteString("\n")
+		}
+		if selected.SQL != "" {
 			sb.WriteString(style.StatusKey.Render("SQL: "))
 			maxW := v.width - 5
 			if maxW < 20 {
