@@ -399,6 +399,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					a.screenBeforeOverlay = a.screen
 					a.screen = screenQueryLog
+					a.queryLogView, _ = a.queryLogView.Update(
+						tea.WindowSizeMsg{Width: a.width - 1, Height: a.contentHeight()})
 				}
 				return a, nil
 			}
