@@ -109,6 +109,7 @@ type RowBrowserModel struct {
 	statusMsg      string
 	exporter       *export.Exporter
 	exportCh       chan exportEvent
+	exportCancel   context.CancelFunc // non-nil only while modeExporting
 }
 
 // NewRowBrowserModel creates a RowBrowserModel in the initial loading state.
@@ -280,7 +281,15 @@ func (m RowBrowserModel) handleKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
 	case modeExportMenu:
 		return m.handleExportMenuKey(msg)
 	case modeExporting:
-		return m, nil // no keys while exporting
+		if msg.Type == tea.KeyEsc {
+			if m.exportCancel != nil {
+				m.exportCancel()
+				m.exportCancel = nil
+			}
+			m.mode = modeNormal
+			m.statusMsg = "Export cancelled"
+		}
+		return m, nil
 	default:
 		return m.handleNormalKey(msg)
 	}
@@ -606,6 +615,9 @@ func (m RowBrowserModel) startExport(format export.Format) (RowBrowserModel, tea
 	timestamp := time.Now().Format("20060102_150405")
 	path := fmt.Sprintf("%s_%s.%s", m.ds.Name, timestamp, ext)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	m.exportCancel = cancel
+
 	ch := make(chan exportEvent, 20)
 	m.exportCh = ch
 	m.exportProgress = 0
@@ -616,8 +628,9 @@ func (m RowBrowserModel) startExport(format export.Format) (RowBrowserModel, tea
 	ex := m.exporter
 
 	go func() {
+		defer cancel()
 		total := 0
-		err := ex.Export(context.Background(), m.ds, opts, format, path, func(n int) {
+		err := ex.Export(ctx, m.ds, opts, format, path, func(n int) {
 			total = n
 			select {
 			case ch <- exportEvent{n: n}:
@@ -670,6 +683,13 @@ func (m RowBrowserModel) ActiveSort() *dataset.Sort    { return m.sort }
 func (m RowBrowserModel) FilterInputActive() bool      { return m.mode == modeFilterInput }
 func (m RowBrowserModel) FilterPillsActive() bool      { return m.mode == modeFilterPills }
 func (m RowBrowserModel) ExportMenuActive() bool       { return m.mode == modeExportMenu }
+
+// CancelExport cancels an in-progress export if one is running.
+func (m RowBrowserModel) CancelExport() {
+	if m.exportCancel != nil {
+		m.exportCancel()
+	}
+}
 
 // visibleRowCount returns the number of data rows that fit in the table area given
 // the current height, drill-stack, filter pills, and mode bar.
