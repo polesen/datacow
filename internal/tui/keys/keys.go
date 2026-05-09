@@ -146,8 +146,9 @@ func (m Map) TableListHelp() []key.Binding {
 // FullHelp returns all bindings grouped for a full help overlay.
 func (m Map) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{m.Up, m.Down, m.Left, m.Right},
-		{m.Enter, m.Back, m.Filter, m.Sort, m.Export, m.Help, m.Quit},
-		{m.SwitchFocus, m.Pane1, m.Pane2, m.Pane3, m.QueryLog, m.Maximize},
+		{m.Up, m.Down, m.Left, m.Right, m.Enter, m.Back, m.NextPage, m.PrevPage},
+		{m.Filter, m.FilterPills, m.RemoveFilter, m.Sort, m.Export, m.ViewCell},
+		{m.SwitchFocus, m.Pane1, m.Pane2, m.Pane3, m.Maximize, m.Goto},
+		{m.QueryLog, m.Refresh, m.Help, m.Quit},
 	}
 }
