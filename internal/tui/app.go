@@ -353,6 +353,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if key.Matches(msg, a.keys.Quit) {
+			if a.rowBrowserReady {
+				a.rowBrowser.CancelExport()
+			}
 			return a, tea.Quit
 		}
 
