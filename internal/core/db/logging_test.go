@@ -182,6 +182,8 @@ func TestKindFromSQL(t *testing.T) {
 		{"SELECT nspname FROM pg_catalog.pg_namespace", QueryKindSystem},
 		{"SELECT * FROM (SELECT 1) AS _dc_schema LIMIT 1", QueryKindSystem},
 		{"SELECT count(*) FROM orders WHERE status = $1", QueryKindUser},
+		{"SELECT COUNT(*) AS _dc_count FROM alerts", QueryKindSystem},
+		{"SELECT COUNT(*) AS _dc_count FROM orders WHERE active = $1", QueryKindSystem},
 	}
 	for _, tc := range tests {
 		got := kindFromSQL(tc.sql)

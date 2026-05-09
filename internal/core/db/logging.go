@@ -69,7 +69,8 @@ func kindFromSQL(sql string) QueryKind {
 	up := strings.ToUpper(sql)
 	if strings.Contains(up, "INFORMATION_SCHEMA") ||
 		strings.Contains(up, "PG_CATALOG") ||
-		strings.Contains(up, "_DC_SCHEMA") {
+		strings.Contains(up, "_DC_SCHEMA") ||
+		strings.Contains(up, "_DC_COUNT") {
 		return QueryKindSystem
 	}
 	return QueryKindUser
