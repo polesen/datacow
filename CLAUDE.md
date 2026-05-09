@@ -215,7 +215,10 @@ Never write implementation before a failing test exists.
 
 **Testing by layer:**
 - **`core/`** — table-driven tests with `gotestsum`, real databases via `TEST_POSTGRES_DSN` / `TEST_MYSQL_DSN`
-- **`tui/`** — use `github.com/charmbracelet/x/exp/teatest` for headless TUI rendering tests
+- **`tui/`** — two levels, both required:
+  - **View unit tests**: call `View()` directly with controlled state and assert on the output string (`strings.Contains`, `lipgloss.Height`). Use this for rendering invariants: required fields always present, layout arithmetic correct, error states rendered, ordering labels shown. These run in 0ms with no infrastructure. A `stubClient` wrapping `db.NewLoggingClient` is the right way to populate a `QueryLog` without a real DB — see `internal/tui/views/testhelpers_test.go` for the pattern.
+  - **App integration tests**: use `github.com/charmbracelet/x/exp/teatest` for whole-app state transitions — screen changes, key sequences that cross component boundaries, window resize propagation. Every distinct path to a screen (every key or combination that opens it) needs at least one smoke test asserting the screen renders non-empty content.
+  - **"Pure rendering logic" does not exempt code from tests.** It means the tests are simpler (direct `View()` calls, string assertions), not that they are unnecessary. Layout arithmetic bugs and missing `WindowSizeMsg` paths are caught at this level, not by manual testing.
 - **`api/`** — use `net/http/httptest` for handler tests against real core logic
 - **`web/`** — API integration tests via HTTP; frontend component tests if complexity warrants it
 

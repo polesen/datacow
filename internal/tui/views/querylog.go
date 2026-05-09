@@ -60,20 +60,27 @@ func (v QueryLogView) SetSpinChar(s string) QueryLogView {
 
 // View renders the query log panel.
 func (v QueryLogView) View() string {
+	if v.height == 0 {
+		return ""
+	}
+
 	running, history := v.queryLog.Snapshot()
 
-	// Clamp cursor
+	// Clamp cursor to valid range (local copy only — value receiver).
 	if len(history) > 0 && v.cursor >= len(history) {
 		v.cursor = len(history) - 1
 	}
 
 	var sb strings.Builder
+	usedLines := 0
 
 	// --- Running section ---
 	sb.WriteString(style.ColHeader.Render(fmt.Sprintf("Running (%d)", len(running))))
 	sb.WriteString("\n")
+	usedLines++
 	if len(running) == 0 {
 		sb.WriteString("  (none)\n")
+		usedLines++
 	} else {
 		for _, e := range running {
 			elapsed := formatDuration(e.Duration)
@@ -85,29 +92,77 @@ func (v QueryLogView) View() string {
 				kind,
 			)
 			sb.WriteString(line + "\n")
+			usedLines++
+		}
+	}
+	sb.WriteString("\n")
+	usedLines++
+
+	// --- History section ---
+	// history is []QueryEntry newest-first (index 0 = newest); iterate forward so newest appears at the top.
+	sb.WriteString(style.ColHeader.Render("History  (newest first)"))
+	sb.WriteString("\n")
+	usedLines++
+
+	// Reserve lines for the SQL preview so it is always visible.
+	previewLines := 0
+	if len(history) > 0 {
+		sel := history[v.cursor]
+		previewLines = 2 // blank separator + At/Duration line
+		if sel.Error != nil {
+			previewLines++
+		}
+		if sel.SQL != "" {
+			previewLines++
 		}
 	}
 
-	sb.WriteString("\n")
+	// Number of history rows that fit between the headers and the preview.
+	availRows := v.height - usedLines - previewLines
+	if availRows < 1 {
+		availRows = 1
+	}
 
-	// --- History section ---
-	sb.WriteString(style.ColHeader.Render("History"))
-	sb.WriteString("\n")
 	if len(history) == 0 {
 		sb.WriteString("  (none)\n")
 	} else {
-		for i, e := range history {
-			dur := formatDuration(e.Duration)
+		// Scroll offset: keep cursor within the visible window.
+		// When cursor moves below the last visible row, shift the window down.
+		scrollOffset := 0
+		if v.cursor >= availRows {
+			scrollOffset = v.cursor - availRows + 1
+		}
+
+		end := scrollOffset + availRows
+		if end > len(history) {
+			end = len(history)
+		}
+
+		for i := scrollOffset; i < end; i++ {
+			e := history[i]
+			ts := e.StartedAt.Format("15:04:05")
 			kind := kindBadge(e.Kind)
-			rows := formatRowCount(e.RowCount)
-			line := fmt.Sprintf("  %-6s %-30s %-14s %s",
-				dur,
+
+			var durField, rowField string
+			if e.Error != nil {
+				durField = "ERR"
+				rowField = truncate(e.Error.Error(), 14)
+			} else {
+				durField = formatDuration(e.Duration)
+				rowField = formatRowCount(e.RowCount)
+			}
+
+			line := fmt.Sprintf("  %-8s %-6s %-30s %-14s %s",
+				ts,
+				durField,
 				truncate(e.Label, 30),
-				rows,
+				rowField,
 				kind,
 			)
 			if i == v.cursor {
 				line = style.RowSelected.Render(line)
+			} else if e.Error != nil {
+				line = style.Error.Render(line)
 			} else {
 				line = style.RowNormal.Render(line)
 			}
@@ -115,11 +170,28 @@ func (v QueryLogView) View() string {
 		}
 	}
 
-	// --- SQL preview ---
+	// --- SQL preview (always visible — space reserved above) ---
 	if len(history) > 0 && v.cursor < len(history) {
 		selected := history[v.cursor]
-		if selected.SQL != "" {
+		sb.WriteString("\n")
+
+		atLine := fmt.Sprintf("At: %s  Duration: %s",
+			selected.StartedAt.Format("15:04:05"),
+			formatDuration(selected.Duration),
+		)
+		sb.WriteString(style.StatusDesc.Render(atLine))
+		sb.WriteString("\n")
+
+		if selected.Error != nil {
+			sb.WriteString(style.StatusKey.Render("Error: "))
+			maxW := v.width - 7
+			if maxW < 20 {
+				maxW = 20
+			}
+			sb.WriteString(style.Error.Render(truncate(selected.Error.Error(), maxW)))
 			sb.WriteString("\n")
+		}
+		if selected.SQL != "" {
 			sb.WriteString(style.StatusKey.Render("SQL: "))
 			maxW := v.width - 5
 			if maxW < 20 {
