@@ -31,6 +31,7 @@ const (
 	screenCellViewer                     // full-screen cell viewer overlay
 	screenError                          // connection failed
 	screenGoto                           // fuzzy goto dialog overlay
+	screenHelp                           // full-screen keybinding reference overlay
 )
 
 type focus int
@@ -94,6 +95,7 @@ type App struct {
 	cellViewer          views.CellViewerModel
 	sqlPane             views.SQLPaneModel
 	queryLogView        views.QueryLogView
+	helpView            views.HelpOverlayView
 	executor            *dataset.Executor
 	exporter            *export.Exporter
 	queryLog            *db.QueryLog
@@ -121,6 +123,7 @@ func New(cfg Config, client db.Client, connErr error) *App {
 		appSpinner:  s,
 		connections: make(map[string]db.Client),
 	}
+	a.helpView = views.NewHelpOverlayView(a.keys)
 
 	switch {
 	case len(cfg.Datasources) > 1 && client == nil && connErr == nil:
@@ -405,6 +408,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Help overlay toggle — only available when in split view.
+		if a.screen == screenSplit || a.screen == screenHelp {
+			if key.Matches(msg, a.keys.Help) {
+				if a.screen == screenHelp {
+					a.screen = a.screenBeforeOverlay
+				} else {
+					a.screenBeforeOverlay = a.screen
+					a.screen = screenHelp
+				}
+				return a, nil
+			}
+			if a.screen == screenHelp && key.Matches(msg, a.keys.Back) {
+				a.screen = a.screenBeforeOverlay
+				return a, nil
+			}
+		}
+
 		if a.screen == screenSplit {
 			inFilterInput := a.rowBrowserReady && a.rowBrowser.FilterInputActive()
 			if !inFilterInput {
@@ -613,6 +633,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.cellViewer, _ = a.cellViewer.Update(tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
 		}
 		a.gotoModel, _ = a.gotoModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
+		a.helpView.SetSize(a.width, a.contentHeight())
 		return a, nil
 	}
 
@@ -643,6 +664,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.cellViewer, cmd = a.cellViewer.Update(msg)
 	case screenGoto:
 		a.gotoModel, cmd = a.gotoModel.Update(msg)
+	case screenHelp:
+		// static overlay — no message routing needed
 	}
 
 	return a, cmd
@@ -686,6 +709,8 @@ func (a *App) renderContent() string {
 		return a.renderCellViewer()
 	case screenGoto:
 		return a.gotoModel.View()
+	case screenHelp:
+		return a.helpView.View()
 	case screenError:
 		var msg string
 		if a.initErr != nil {
@@ -853,6 +878,8 @@ func (a *App) renderStatusBar() string {
 		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.Enter}
 	case a.screen == screenQueryLog:
 		bindings = []key.Binding{a.keys.Up, a.keys.Down, a.keys.QueryLog, a.keys.Back}
+	case a.screen == screenHelp:
+		bindings = nil // footer rendered inside the HelpOverlayView
 	case a.screen == screenGoto:
 		bindings = nil // hint is rendered inside the GotoModel.View()
 	case a.focus == focusTables:
