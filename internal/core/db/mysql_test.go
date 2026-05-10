@@ -178,3 +178,47 @@ func TestMySQL_SchemaIntrospection(t *testing.T) {
 		}
 	})
 }
+
+func TestMySQL_TableStats(t *testing.T) {
+	client := mysqlClient(t)
+	ctx := context.Background()
+
+	for _, stmt := range []string{
+		"DROP TABLE IF EXISTS dc_stats_test",
+		"CREATE TABLE dc_stats_test (id INT AUTO_INCREMENT PRIMARY KEY, val VARCHAR(255))",
+		"INSERT INTO dc_stats_test (val) VALUES ('hello')",
+	} {
+		if _, err := queryExec(ctx, client, stmt); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		queryExec(ctx, client, "DROP TABLE IF EXISTS dc_stats_test") //nolint:errcheck
+	})
+
+	sp, ok := client.(db.StatsProvider)
+	if !ok {
+		t.Fatal("mysqlClient does not implement StatsProvider")
+	}
+
+	stats, err := sp.TableStats(ctx, "dc_stats_test")
+	if err != nil {
+		t.Fatalf("TableStats: %v", err)
+	}
+
+	if stats.TotalBytes == nil || *stats.TotalBytes < 0 {
+		t.Errorf("TotalBytes: got %v, want >= 0", stats.TotalBytes)
+	}
+	if stats.TableBytes == nil || *stats.TableBytes < 0 {
+		t.Errorf("TableBytes: got %v, want >= 0", stats.TableBytes)
+	}
+	if stats.IndexBytes == nil || *stats.IndexBytes < 0 {
+		t.Errorf("IndexBytes: got %v, want >= 0", stats.IndexBytes)
+	}
+	if stats.Engine == "" {
+		t.Error("Engine: got empty, want InnoDB or similar")
+	}
+	if stats.CreatedAt == nil {
+		t.Error("CreatedAt: got nil, want non-nil")
+	}
+}

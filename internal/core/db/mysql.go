@@ -4,22 +4,38 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 var _ Client = (*mysqlClient)(nil)
+var _ StatsProvider = (*mysqlClient)(nil)
 
 type mysqlClient struct {
 	db *sql.DB
 }
 
 func newMySQLClient(dsn string) (Client, error) {
+	dsn = ensureParseTime(dsn)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open mysql: %w", err)
 	}
 	return &mysqlClient{db: db}, nil
+}
+
+// ensureParseTime appends parseTime=true to the DSN if not already present.
+// Required so that datetime columns from information_schema scan into time.Time.
+func ensureParseTime(dsn string) string {
+	if strings.Contains(dsn, "parseTime") {
+		return dsn
+	}
+	if strings.Contains(dsn, "?") {
+		return dsn + "&parseTime=true"
+	}
+	return dsn + "?parseTime=true"
 }
 
 func (c *mysqlClient) Ping(ctx context.Context) error {
@@ -193,4 +209,74 @@ func (c *mysqlClient) Placeholder(_ int) string {
 
 func (c *mysqlClient) Close() error {
 	return c.db.Close()
+}
+
+func (c *mysqlClient) TableStats(ctx context.Context, table string) (TableStats, error) {
+	row := c.db.QueryRowContext(ctx, `
+		SELECT
+			TABLE_ROWS,
+			DATA_LENGTH,
+			INDEX_LENGTH,
+			DATA_FREE,
+			TABLE_COMMENT,
+			CREATE_TIME,
+			UPDATE_TIME,
+			ENGINE,
+			AUTO_INCREMENT
+		FROM information_schema.TABLES
+		WHERE TABLE_SCHEMA = DATABASE()
+		  AND TABLE_NAME   = ?
+	`, table)
+
+	var tableRows, dataLen, indexLen, dataFree sql.NullInt64
+	var comment sql.NullString
+	var createTime, updateTime sql.NullTime
+	var engine sql.NullString
+	var autoIncr sql.NullInt64
+
+	if err := row.Scan(&tableRows, &dataLen, &indexLen, &dataFree,
+		&comment, &createTime, &updateTime, &engine, &autoIncr); err != nil {
+		if err == sql.ErrNoRows {
+			return TableStats{}, fmt.Errorf("table not found: %s", table)
+		}
+		return TableStats{}, fmt.Errorf("table stats %s: %w", table, err)
+	}
+
+	var stats TableStats
+
+	if tableRows.Valid {
+		v := tableRows.Int64
+		stats.RowEstimate = &v
+	}
+	if dataLen.Valid && indexLen.Valid {
+		total := dataLen.Int64 + indexLen.Int64
+		stats.TotalBytes = &total
+		stats.TableBytes = &dataLen.Int64
+		stats.IndexBytes = &indexLen.Int64
+	} else if dataLen.Valid {
+		stats.TableBytes = &dataLen.Int64
+	} else if indexLen.Valid {
+		stats.IndexBytes = &indexLen.Int64
+	}
+	if dataFree.Valid {
+		stats.FreeBytes = &dataFree.Int64
+	}
+	if comment.Valid {
+		stats.Description = comment.String
+	}
+	if createTime.Valid {
+		t := createTime.Time.In(time.UTC)
+		stats.CreatedAt = &t
+	}
+	if updateTime.Valid {
+		t := updateTime.Time.In(time.UTC)
+		stats.LastAnalyzed = &t
+	}
+	if engine.Valid {
+		stats.Engine = engine.String
+	}
+	if autoIncr.Valid {
+		stats.NextAutoIncr = &autoIncr.Int64
+	}
+	return stats, nil
 }

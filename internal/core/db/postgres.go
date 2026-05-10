@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 var _ Client = (*postgresClient)(nil)
+var _ StatsProvider = (*postgresClient)(nil)
 
 type postgresClient struct {
 	db *sql.DB
@@ -205,4 +207,57 @@ func (c *postgresClient) Placeholder(n int) string {
 
 func (c *postgresClient) Close() error {
 	return c.db.Close()
+}
+
+func (c *postgresClient) TableStats(ctx context.Context, table string) (TableStats, error) {
+	row := c.db.QueryRowContext(ctx, `
+		SELECT
+			c.reltuples::bigint                    AS row_estimate,
+			pg_total_relation_size(c.oid)          AS total_bytes,
+			pg_relation_size(c.oid)                AS table_bytes,
+			pg_indexes_size(c.oid)                 AS index_bytes,
+			obj_description(c.oid, 'pg_class')     AS description,
+			s.last_autovacuum,
+			s.last_autoanalyze
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+		WHERE n.nspname = 'public'
+		  AND c.relname = $1
+		  AND c.relkind = 'r'
+	`, table)
+
+	var rowEst int64
+	var totalBytes, tableBytes, indexBytes int64
+	var description sql.NullString
+	var lastVacuumed, lastAnalyzed sql.NullTime
+
+	if err := row.Scan(&rowEst, &totalBytes, &tableBytes, &indexBytes,
+		&description, &lastVacuumed, &lastAnalyzed); err != nil {
+		if err == sql.ErrNoRows {
+			return TableStats{}, fmt.Errorf("table not found: %s", table)
+		}
+		return TableStats{}, fmt.Errorf("table stats %s: %w", table, err)
+	}
+
+	var stats TableStats
+
+	if rowEst >= 0 {
+		stats.RowEstimate = &rowEst
+	}
+	stats.TotalBytes = &totalBytes
+	stats.TableBytes = &tableBytes
+	stats.IndexBytes = &indexBytes
+	if description.Valid {
+		stats.Description = description.String
+	}
+	if lastVacuumed.Valid {
+		t := lastVacuumed.Time.In(time.UTC)
+		stats.LastVacuumed = &t
+	}
+	if lastAnalyzed.Valid {
+		t := lastAnalyzed.Time.In(time.UTC)
+		stats.LastAnalyzed = &t
+	}
+	return stats, nil
 }
