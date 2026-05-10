@@ -15,11 +15,12 @@ import (
 
 // QueryLogView renders the full-screen query log panel.
 type QueryLogView struct {
-	queryLog *db.QueryLog
-	cursor   int
-	width    int
-	height   int
-	spinChar string
+	queryLog   *db.QueryLog
+	cursor     int
+	width      int
+	height     int
+	spinChar   string
+	showSystem bool
 }
 
 // NewQueryLogView returns a QueryLogView backed by the given log.
@@ -35,15 +36,19 @@ func (v QueryLogView) Update(msg tea.Msg) (QueryLogView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		_, history := v.queryLog.Snapshot()
+		filtered := filterHistory(history, v.showSystem)
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
 			if v.cursor > 0 {
 				v.cursor--
 			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
-			if v.cursor < len(history)-1 {
+			if v.cursor < len(filtered)-1 {
 				v.cursor++
 			}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("s"))):
+			v.showSystem = !v.showSystem
+			v.cursor = 0
 		}
 	case tea.WindowSizeMsg:
 		v.width = msg.Width
@@ -64,7 +69,8 @@ func (v QueryLogView) View() string {
 		return ""
 	}
 
-	running, history := v.queryLog.Snapshot()
+	running, fullHistory := v.queryLog.Snapshot()
+	history := filterHistory(fullHistory, v.showSystem)
 
 	// Clamp cursor to valid range (local copy only — value receiver).
 	if len(history) > 0 && v.cursor >= len(history) {
@@ -100,7 +106,13 @@ func (v QueryLogView) View() string {
 
 	// --- History section ---
 	// history is []QueryEntry newest-first (index 0 = newest); iterate forward so newest appears at the top.
-	sb.WriteString(style.ColHeader.Render("History  (newest first)"))
+	var filterLabel string
+	if v.showSystem {
+		filterLabel = "  [all queries — s: user only]"
+	} else {
+		filterLabel = "  [user only — s: show all]"
+	}
+	sb.WriteString(style.ColHeader.Render("History  (newest first)" + filterLabel))
 	sb.WriteString("\n")
 	usedLines++
 
@@ -207,6 +219,19 @@ func (v QueryLogView) View() string {
 		Width(v.width).
 		Height(v.height).
 		Render(content)
+}
+
+func filterHistory(history []db.QueryEntry, showSystem bool) []db.QueryEntry {
+	if showSystem {
+		return history
+	}
+	var out []db.QueryEntry
+	for _, e := range history {
+		if e.Kind == db.QueryKindUser {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func formatDuration(d time.Duration) string {
