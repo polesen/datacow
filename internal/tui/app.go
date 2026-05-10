@@ -32,6 +32,7 @@ const (
 	screenError                          // connection failed
 	screenGoto                           // fuzzy goto dialog overlay
 	screenHelp                           // full-screen keybinding reference overlay
+	screenTableInfo                      // table info overlay
 )
 
 type focus int
@@ -103,6 +104,7 @@ type App struct {
 	initErr             error
 	schemaCache         *schema.Cache
 	gotoModel           views.GotoModel
+	tableInfoModel      views.TableInfoModel
 	cacheLoading        bool
 	activeClient        db.Client
 	activeResolver      *dataset.Resolver
@@ -350,6 +352,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.rowBrowserReady {
 			a.rowBrowser, _ = a.rowBrowser.Update(msg)
 		}
+		if a.screen == screenTableInfo {
+			a.tableInfoModel.SetSpinChar(a.appSpinner.View())
+		}
 		return a, cmd
 	}
 
@@ -422,6 +427,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if a.screen == screenHelp && key.Matches(msg, a.keys.Back) {
+				a.screen = a.screenBeforeOverlay
+				return a, nil
+			}
+		}
+
+		// Table info overlay — only when split view, table list focused, KindTable selected.
+		if a.screen == screenSplit && a.focus == focusTables && key.Matches(msg, a.keys.TableInfo) {
+			if ds := a.tableList.SelectedDataset(); ds != nil && ds.Kind == dataset.KindTable {
+				a.tableInfoModel = views.NewTableInfoModel()
+				a.tableInfoModel.SetSize(a.width, a.contentHeight())
+				a.screenBeforeOverlay = a.screen
+				a.screen = screenTableInfo
+				return a, a.tableInfoModel.Load(a.activeClient, ds.Table)
+			}
+			return a, nil
+		}
+		if a.screen == screenTableInfo {
+			if key.Matches(msg, a.keys.TableInfo) || key.Matches(msg, a.keys.Back) {
 				a.screen = a.screenBeforeOverlay
 				return a, nil
 			}
@@ -636,13 +659,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.gotoModel, _ = a.gotoModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
 		a.helpView.SetSize(a.width, a.contentHeight())
+		a.tableInfoModel.SetSize(a.width, a.contentHeight())
 		return a, nil
-	}
-
-	// RowCountMsg always goes to the table list.
-	if _, ok := msg.(views.RowCountMsg); ok {
-		a.tableList, cmd = a.tableList.Update(msg)
-		return a, cmd
 	}
 
 	// Route remaining messages to the active screen/pane.
@@ -668,6 +686,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.gotoModel, cmd = a.gotoModel.Update(msg)
 	case screenHelp:
 		// static overlay — no message routing needed
+	case screenTableInfo:
+		a.tableInfoModel, cmd = a.tableInfoModel.Update(msg)
 	}
 
 	return a, cmd
@@ -713,6 +733,8 @@ func (a *App) renderContent() string {
 		return a.gotoModel.View()
 	case screenHelp:
 		return a.helpView.View()
+	case screenTableInfo:
+		return a.tableInfoModel.View()
 	case screenError:
 		var msg string
 		if a.initErr != nil {
@@ -882,6 +904,8 @@ func (a *App) renderStatusBar() string {
 		bindings = []key.Binding{a.keys.Up, a.keys.Down, a.keys.QueryLog, a.keys.Back}
 	case a.screen == screenHelp:
 		bindings = nil // footer rendered inside the HelpOverlayView
+	case a.screen == screenTableInfo:
+		bindings = nil // footer rendered inside the TableInfoModel.View()
 	case a.screen == screenGoto:
 		bindings = nil // hint is rendered inside the GotoModel.View()
 	case a.focus == focusTables:

@@ -29,6 +29,7 @@ type Map struct {
 	ViewCell     key.Binding
 	Goto         key.Binding
 	Refresh      key.Binding
+	TableInfo    key.Binding
 }
 
 // Default returns the default keybindings.
@@ -130,6 +131,10 @@ func Default() Map {
 			key.WithKeys("ctrl+r"),
 			key.WithHelp("ctrl+r", "refresh schema"),
 		),
+		TableInfo: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "table info"),
+		),
 	}
 }
 
@@ -140,7 +145,7 @@ func (m Map) ShortHelp() []key.Binding {
 
 // TableListHelp returns bindings shown in the status bar when the table list is focused.
 func (m Map) TableListHelp() []key.Binding {
-	return []key.Binding{m.Quit, m.Up, m.Down, m.Enter, m.SwitchFocus}
+	return []key.Binding{m.Quit, m.Up, m.Down, m.Enter, m.TableInfo, m.SwitchFocus}
 }
 
 // FullHelp returns all bindings grouped for a full help overlay.
@@ -149,6 +154,6 @@ func (m Map) FullHelp() [][]key.Binding {
 		{m.Up, m.Down, m.Left, m.Right, m.Enter, m.Back, m.NextPage, m.PrevPage},
 		{m.Filter, m.FilterPills, m.RemoveFilter, m.Sort, m.Export, m.ViewCell},
 		{m.SwitchFocus, m.Pane1, m.Pane2, m.Pane3, m.Maximize, m.Goto},
-		{m.QueryLog, m.Refresh, m.Help, m.Quit},
+		{m.QueryLog, m.Refresh, m.TableInfo, m.Help, m.Quit},
 	}
 }

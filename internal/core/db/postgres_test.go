@@ -170,3 +170,48 @@ func TestPostgres_SchemaIntrospection(t *testing.T) {
 		}
 	})
 }
+
+func TestPostgres_TableStats(t *testing.T) {
+	client := postgresClient(t)
+	ctx := context.Background()
+
+	for _, stmt := range []string{
+		"DROP TABLE IF EXISTS dc_stats_test",
+		`CREATE TABLE dc_stats_test (id SERIAL PRIMARY KEY, val TEXT)`,
+		"INSERT INTO dc_stats_test (val) VALUES ('hello')",
+		"ANALYZE dc_stats_test",
+	} {
+		if _, err := queryExec(ctx, client, stmt); err != nil {
+			t.Fatalf("setup %q: %v", stmt, err)
+		}
+	}
+	t.Cleanup(func() {
+		queryExec(ctx, client, "DROP TABLE IF EXISTS dc_stats_test") //nolint:errcheck
+	})
+
+	sp, ok := client.(db.StatsProvider)
+	if !ok {
+		t.Fatal("postgresClient does not implement StatsProvider")
+	}
+
+	stats, err := sp.TableStats(ctx, "dc_stats_test")
+	if err != nil {
+		t.Fatalf("TableStats: %v", err)
+	}
+
+	if stats.RowEstimate == nil || *stats.RowEstimate < 0 {
+		t.Errorf("RowEstimate: got %v, want >= 0", stats.RowEstimate)
+	}
+	if stats.TotalBytes == nil || *stats.TotalBytes <= 0 {
+		t.Errorf("TotalBytes: got %v, want > 0", stats.TotalBytes)
+	}
+	if stats.TableBytes == nil || *stats.TableBytes <= 0 {
+		t.Errorf("TableBytes: got %v, want > 0", stats.TableBytes)
+	}
+	if stats.IndexBytes == nil || *stats.IndexBytes < 0 {
+		t.Errorf("IndexBytes: got %v, want >= 0", stats.IndexBytes)
+	}
+	if stats.Description != "" {
+		t.Errorf("Description: got %q, want empty", stats.Description)
+	}
+}

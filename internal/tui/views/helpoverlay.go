@@ -69,7 +69,7 @@ func (v *HelpOverlayView) View() string {
 			title: "System",
 			bindings: []key.Binding{
 				v.keys.QueryLog, v.keys.Refresh,
-				v.keys.Help, v.keys.Quit,
+				v.keys.TableInfo, v.keys.Help, v.keys.Quit,
 			},
 		},
 	}

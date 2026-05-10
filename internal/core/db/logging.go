@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -63,6 +64,17 @@ func (c *LoggingClient) Placeholder(n int) string {
 
 func (c *LoggingClient) Close() error {
 	return c.inner.Close()
+}
+
+func (c *LoggingClient) TableStats(ctx context.Context, table string) (TableStats, error) {
+	sp, ok := c.inner.(StatsProvider)
+	if !ok {
+		return TableStats{}, fmt.Errorf("statistics not available for this database")
+	}
+	id := c.log.begin("info "+table, "", QueryKindSystem)
+	stats, err := sp.TableStats(ctx, table)
+	c.log.end(id, 0, err)
+	return stats, err
 }
 
 func kindFromSQL(sql string) QueryKind {

@@ -21,11 +21,6 @@ type ErrMsg struct{ Err error }
 
 type TablesLoadedMsg []dataset.Dataset
 
-type RowCountMsg struct {
-	Name  string
-	Count int64
-}
-
 // ExpansionLoadedMsg carries the columns + FKs for a dataset's expanded view.
 type ExpansionLoadedMsg struct {
 	Idx  int
@@ -74,10 +69,8 @@ type treeNode struct {
 type TableListModel struct {
 	datasets     []dataset.Dataset
 	tree         []treeNode
-	counts       map[string]int64
 	cursor       int
 	scrollOffset int // in visible-line space (not dataset-index space)
-	nextCountIdx int
 	spinner      spinner.Model
 	loading      bool
 	err          error
@@ -96,7 +89,6 @@ func NewTableListModel(k keys.Map, resolver *dataset.Resolver, executor *dataset
 		spinner:  newSpinner(),
 		loading:  true,
 		keys:     k,
-		counts:   make(map[string]int64),
 		resolver: resolver,
 		executor: executor,
 		client:   client,
@@ -119,21 +111,6 @@ func (m TableListModel) loadTablesCmd() tea.Cmd {
 			return ErrMsg{err}
 		}
 		return TablesLoadedMsg(datasets)
-	}
-}
-
-func (m TableListModel) loadRowCountCmd(ds dataset.Dataset) tea.Cmd {
-	if m.executor == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		result, err := m.executor.Query(ctx, ds, dataset.QueryOptions{Page: 1, PageSize: 1})
-		if err != nil {
-			return RowCountMsg{Name: ds.Name, Count: -1}
-		}
-		return RowCountMsg{Name: ds.Name, Count: result.TotalRows}
 	}
 }
 
@@ -191,25 +168,7 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 		m.datasets = []dataset.Dataset(msg)
 		m.tree = make([]treeNode, len(m.datasets))
 		m.loading = false
-		if len(m.datasets) == 0 {
-			return m, nil
-		}
-		const maxConcurrent = 5
-		limit := min(len(m.datasets), maxConcurrent)
-		cmds := make([]tea.Cmd, limit)
-		for i := range limit {
-			cmds[i] = m.loadRowCountCmd(m.datasets[i])
-		}
-		m.nextCountIdx = limit
-		return m, tea.Batch(cmds...)
-
-	case RowCountMsg:
-		m.counts[msg.Name] = msg.Count
-		if m.nextCountIdx < len(m.datasets) {
-			cmd = m.loadRowCountCmd(m.datasets[m.nextCountIdx])
-			m.nextCountIdx++
-		}
-		return m, cmd
+		return m, nil
 
 	case ExpansionLoadedMsg:
 		if msg.Idx < 0 || msg.Idx >= len(m.tree) {
@@ -517,7 +476,6 @@ func (m TableListModel) View() string {
 func (m TableListModel) renderHeaderRow(i int) string {
 	ds := m.datasets[i]
 	const maxNameWidth = 40
-	const countWidth = 12
 	const margin = 2
 
 	badge := datasetKindBadge(ds.Kind)
@@ -527,17 +485,7 @@ func (m TableListModel) renderHeaderRow(i int) string {
 	}
 
 	name := runewidth.Truncate(ds.Name, maxNameWidth, "…")
-
-	count := "..."
-	if c, ok := m.counts[ds.Name]; ok {
-		if c < 0 {
-			count = "?"
-		} else {
-			count = formatCount(c)
-		}
-	}
-
-	nameWidth := min(max(m.width-countWidth-margin*2, 10), maxNameWidth)
+	nameWidth := min(max(m.width-margin*2, 10), maxNameWidth)
 
 	selected := i == m.cursor
 	caret := "  "
@@ -559,9 +507,9 @@ func (m TableListModel) renderHeaderRow(i int) string {
 		if selected {
 			label = " " + badge
 		}
-		line = caret + runewidth.FillRight(name, availNameW) + label + fmt.Sprintf("%*s", countWidth, count)
+		line = caret + runewidth.FillRight(name, availNameW) + label
 	} else {
-		line = caret + runewidth.FillRight(name, nameWidth) + fmt.Sprintf("%*s", countWidth, count)
+		line = caret + runewidth.FillRight(name, nameWidth)
 	}
 
 	if selected {
@@ -601,21 +549,3 @@ func formatFK(fk db.ForeignKey) string {
 	return fmt.Sprintf("%s → %s.%s", fk.Column, fk.ReferencedTable, fk.ReferencedColumn)
 }
 
-func formatCount(n int64) string {
-	s := fmt.Sprintf("%d", n)
-	if len(s) <= 3 {
-		return s
-	}
-	var b strings.Builder
-	start := len(s) % 3
-	if start > 0 {
-		b.WriteString(s[:start])
-	}
-	for i := start; i < len(s); i += 3 {
-		if b.Len() > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteString(s[i : i+3])
-	}
-	return b.String()
-}

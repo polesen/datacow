@@ -139,14 +139,6 @@ func TestTableListModel_View(t *testing.T) {
 	}
 }
 
-func TestTableListModel_RowCountReceived(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
-	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
-		{Name: "users", Table: "users"},
-	}))
-	_, _ = m.Update(views.RowCountMsg{Name: "users", Count: 1234})
-	// No crash, count stored
-}
 
 // --- Schema tree tests ---------------------------------------------------
 
