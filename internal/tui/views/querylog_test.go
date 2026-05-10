@@ -177,3 +177,63 @@ func TestQueryLogView_CursorClamped(t *testing.T) {
 		t.Error("preview must be visible after clamped navigation")
 	}
 }
+
+func TestQueryLogView_DefaultHidesSystemQueries(t *testing.T) {
+	ql := db.NewQueryLog()
+	addQuery(ql, "SELECT * FROM users")
+	addQuery(ql, "SELECT COUNT(*) AS _dc_count FROM t")
+	v := sizedQueryLogView(ql, 120, 20)
+	out := v.View()
+	if strings.Contains(out, "system") {
+		t.Error("default user-only mode should hide system queries")
+	}
+}
+
+func TestQueryLogView_ToggleShowsSystemQueries(t *testing.T) {
+	ql := db.NewQueryLog()
+	addQuery(ql, "SELECT * FROM users")
+	addQuery(ql, "SELECT COUNT(*) AS _dc_count FROM t")
+	v := sizedQueryLogView(ql, 120, 20)
+	v, _ = v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	out := v.View()
+	if !strings.Contains(out, "system") {
+		t.Error("after toggle, system queries should appear with 'system' badge")
+	}
+}
+
+func TestQueryLogView_ToggleBackHidesSystem(t *testing.T) {
+	ql := db.NewQueryLog()
+	addQuery(ql, "SELECT * FROM users")
+	addQuery(ql, "SELECT COUNT(*) AS _dc_count FROM t")
+	v := sizedQueryLogView(ql, 120, 20)
+	v, _ = v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	v, _ = v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	out := v.View()
+	if strings.Contains(out, "system") {
+		t.Error("after two toggles, system queries should be hidden again")
+	}
+}
+
+func TestQueryLogView_HeaderReflectsFilterState(t *testing.T) {
+	ql := db.NewQueryLog()
+	v := sizedQueryLogView(ql, 120, 20)
+	out := v.View()
+	if !strings.Contains(out, "user only") {
+		t.Error("default header should contain 'user only'")
+	}
+	v, _ = v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	out = v.View()
+	if !strings.Contains(out, "all queries") {
+		t.Error("after toggle, header should contain 'all queries'")
+	}
+}
+
+func TestQueryLogView_EmptyAfterFilter(t *testing.T) {
+	ql := db.NewQueryLog()
+	addQuery(ql, "SELECT COUNT(*) AS _dc_count FROM t")
+	v := sizedQueryLogView(ql, 120, 20)
+	out := v.View()
+	if !strings.Contains(out, "(none)") {
+		t.Error("user-only mode with only system queries should show '(none)' placeholder")
+	}
+}
