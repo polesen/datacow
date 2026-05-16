@@ -10,6 +10,7 @@ const (
 	typeCatNumeric
 	typeCatDateTime
 	typeCatBoolean
+	typeCatJSON
 )
 
 // resolveTypeCategory maps a driver type string to a broad category using
@@ -19,6 +20,8 @@ func resolveTypeCategory(colType string) typeCategory {
 	switch {
 	case strings.Contains(t, "bool"):
 		return typeCatBoolean
+	case strings.Contains(t, "json"):
+		return typeCatJSON
 	case strings.Contains(t, "int") || strings.Contains(t, "serial"):
 		return typeCatInteger
 	case strings.Contains(t, "numeric") || strings.Contains(t, "decimal") ||
@@ -38,7 +41,7 @@ func allowedOps(cat typeCategory) []string {
 	switch cat {
 	case typeCatText:
 		return []string{"=", "like"}
-	case typeCatBoolean:
+	case typeCatBoolean, typeCatJSON:
 		return []string{"="}
 	default: // integer, numeric, date/time
 		return []string{"=", ">", "<", ">=", "<="}
@@ -49,15 +52,17 @@ func allowedOps(cat typeCategory) []string {
 func typeTip(cat typeCategory) string {
 	switch cat {
 	case typeCatInteger:
-		return "integer column. type a whole number."
+		return "integer: whole number, e.g. 42"
 	case typeCatNumeric:
-		return "numeric column. decimals allowed."
+		return "numeric: decimals allowed, e.g. 3.14"
 	case typeCatDateTime:
-		return "use ISO format, e.g. '2024-01-15' or '2024-01-15 10:00:00'."
+		return "date/time: ISO format, e.g. 2024-01-15 or 2024-01-15 10:00:00"
 	case typeCatBoolean:
-		return "boolean column. value is true or false."
+		return "boolean: true or false"
+	case typeCatJSON:
+		return "JSON: only = is supported (exact equality)"
 	default:
-		return "text values use single quotes. like accepts % wildcards."
+		return "text: no quotes needed. like accepts % wildcards, e.g. foo%"
 	}
 }
 

@@ -11,8 +11,8 @@ func TestResolveTypeCategory(t *testing.T) {
 		{"character varying", typeCatText},
 		{"varchar(255)", typeCatText},
 		{"uuid", typeCatText},
-		{"jsonb", typeCatText},
-		{"json", typeCatText},
+		{"jsonb", typeCatJSON},
+		{"json", typeCatJSON},
 		{"unknown_type", typeCatText},
 		{"integer", typeCatInteger},
 		{"int4", typeCatInteger},
@@ -51,6 +51,7 @@ func TestAllowedOps(t *testing.T) {
 	}{
 		{typeCatText, []string{"=", "like"}},
 		{typeCatBoolean, []string{"="}},
+		{typeCatJSON, []string{"="}},
 		{typeCatInteger, []string{"=", ">", "<", ">=", "<="}},
 		{typeCatNumeric, []string{"=", ">", "<", ">=", "<="}},
 		{typeCatDateTime, []string{"=", ">", "<", ">=", "<="}},
@@ -112,7 +113,7 @@ func TestIsValidValueRune(t *testing.T) {
 
 func TestTypeTip(t *testing.T) {
 	// Each category must return a non-empty tip.
-	cats := []typeCategory{typeCatText, typeCatInteger, typeCatNumeric, typeCatDateTime, typeCatBoolean}
+	cats := []typeCategory{typeCatText, typeCatInteger, typeCatNumeric, typeCatDateTime, typeCatBoolean, typeCatJSON}
 	for _, cat := range cats {
 		if tip := typeTip(cat); tip == "" {
 			t.Errorf("typeTip(%d) returned empty string", cat)

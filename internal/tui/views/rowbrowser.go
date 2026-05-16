@@ -498,14 +498,7 @@ func (m RowBrowserModel) openQuickFilter() (RowBrowserModel, tea.Cmd) {
 		return m, nil
 	}
 	rawStr := formatCellValue(cellValue)
-	typeCat := resolveTypeCategory(col.Type)
-	var valueStr string
-	switch typeCat {
-	case typeCatText, typeCatDateTime:
-		valueStr = "'" + rawStr + "'"
-	default:
-		valueStr = rawStr
-	}
+	valueStr := rawStr
 
 	var phFn func(int) string
 	if m.executor != nil {
