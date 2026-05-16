@@ -622,7 +622,7 @@ func (m FilterModalModel) View() string {
 			if i == m.listCursor {
 				cursor = "▸ "
 			}
-			label := fmt.Sprintf("   %d %s%-14s %-5s %v", i+1, cursor, f.Column, f.Operator, f.Value)
+			label := fmt.Sprintf("   %d %s%s", i+1, cursor, formatFilterLabel(f))
 			if i == m.listCursor {
 				lines = append(lines, style.RowHighlight.Render(label))
 			} else {

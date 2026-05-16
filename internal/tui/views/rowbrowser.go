@@ -943,8 +943,7 @@ func (m RowBrowserModel) View() string {
 func (m RowBrowserModel) renderFilterPills() string {
 	var parts []string
 	for _, f := range m.filters {
-		label := fmt.Sprintf("%s%s%v", f.Column, f.Operator, f.Value)
-		parts = append(parts, style.FilterPill.Render(label))
+		parts = append(parts, style.FilterPill.Render(formatFilterLabel(f)))
 	}
 	return strings.Join(parts, " ")
 }
