@@ -316,17 +316,17 @@ func (m FilterModalModel) handleOpKey(msg tea.KeyMsg) (FilterModalModel, tea.Cmd
 }
 
 func (m FilterModalModel) handleValueKey(msg tea.KeyMsg) (FilterModalModel, tea.Cmd) {
-	switch {
-	case msg.Type == tea.KeyEnter:
+	switch msg.Type {
+	case tea.KeyEnter:
 		return m.submitForm(), nil
 
-	case msg.Type == tea.KeyDown:
+	case tea.KeyDown:
 		if m.listCursor < len(m.filters)-1 {
 			m.listCursor++
 		}
 		return m, nil
 
-	case msg.Type == tea.KeyUp:
+	case tea.KeyUp:
 		if m.listCursor > 0 {
 			m.listCursor--
 		}
@@ -359,16 +359,19 @@ func (m FilterModalModel) nextField() FilterModalModel {
 		if m.dropIdx >= 0 && m.dropIdx < len(m.colDropdown) {
 			m = m.acceptDropdownSelection()
 		}
+		// Don't advance if column name is not in the schema
+		if m.selColIdx < 0 {
+			if m.columnInput.Value() != "" {
+				m.valErr = fmt.Sprintf("unknown column %q — pick from the list", m.columnInput.Value())
+			}
+			return m
+		}
+		m.valErr = ""
 		m.activeField = fieldOp
 		m.columnInput.Blur()
 
 	case fieldOp:
 		m.activeField = fieldValue
-		// Pre-fill '' for text/datetime when value is empty
-		if m.valueInput.Value() == "" && (m.typeCat == typeCatText || m.typeCat == typeCatDateTime) {
-			m.valueInput.SetValue("''")
-			m.valueInput.SetCursor(1)
-		}
 		m.valueInput.Focus()
 
 	case fieldValue:
