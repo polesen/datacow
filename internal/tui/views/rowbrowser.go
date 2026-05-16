@@ -8,7 +8,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
 
@@ -47,8 +46,7 @@ type uiMode int
 
 const (
 	modeNormal      uiMode = iota
-	modeFilterInput        // filter expression bar at bottom
-	modeFilterPills        // navigating filter pills to remove
+	modeFilterModal        // query filter modal is open
 	modeExportMenu         // choosing export format
 	modeExporting          // export in progress
 )
@@ -100,26 +98,21 @@ type RowBrowserModel struct {
 	height     int
 	executor   *dataset.Executor
 
-	filters        []dataset.Filter
-	sort           *dataset.Sort
-	mode           uiMode
-	filterInput    textinput.Model
-	filterPillIdx  int
+	filters      []dataset.Filter
+	sort         *dataset.Sort
+	mode         uiMode
+	filterModal  FilterModalModel
+	localSearch  LocalSearchState
 	exportProgress int
-	statusMsg      string
-	exporter       *export.Exporter
-	exportCh       chan exportEvent
-	exportCancel   context.CancelFunc // non-nil only while modeExporting
+	statusMsg    string
+	exporter     *export.Exporter
+	exportCh     chan exportEvent
+	exportCancel context.CancelFunc // non-nil only while modeExporting
 }
 
 // NewRowBrowserModel creates a RowBrowserModel in the initial loading state.
 // executor and exporter may be nil for testing.
 func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export.Exporter, ds dataset.Dataset) RowBrowserModel {
-	ti := textinput.New()
-	ti.Placeholder = "column=value  (ops: = > < >= <= like)"
-	ti.Prompt = "Filter: "
-	ti.CharLimit = 200
-
 	return RowBrowserModel{
 		ds:          ds,
 		spinner:     newSpinner(),
@@ -127,7 +120,7 @@ func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export
 		keys:        k,
 		executor:    executor,
 		exporter:    exporter,
-		filterInput: ti,
+		localSearch: newLocalSearch(),
 		drillStack:  make([]savedLevel, 0, 4),
 	}
 }
@@ -200,11 +193,48 @@ func (m RowBrowserModel) applyLoadedResult(r *dataset.QueryResult) RowBrowserMod
 	m.rowCursor = 0
 	m.rowOffset = 0
 	m.colWidths = computeColWidths(r.Columns, r.Rows)
+	// Recompute local search against new page
+	if m.localSearch.IsActive() {
+		m.localSearch = m.localSearch.recompute(m.localSearch.Query(), r.Columns, r.Rows)
+	}
 	return m
 }
 
 func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 	var cmd tea.Cmd
+
+	// Route all messages to modal when it is open.
+	if m.mode == modeFilterModal {
+		if ws, ok := msg.(tea.WindowSizeMsg); ok {
+			m.width = ws.Width
+			m.height = ws.Height
+			m.filterModal.SetWidth(ws.Width)
+			return m, nil
+		}
+		m.filterModal, cmd = m.filterModal.Update(msg)
+		if m.filterModal.IsApplied() {
+			m.filters = m.filterModal.Filters()
+			m.localSearch = m.localSearch.cleared()
+			m.mode = modeNormal
+			m.statusMsg = ""
+			if m.executor != nil {
+				m.loading = true
+				return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1), cmd)
+			}
+			return m, cmd
+		}
+		if m.filterModal.IsCancelled() {
+			m.mode = modeNormal
+			return m, nil
+		}
+		// Also route spinner ticks to keep the spinner going
+		if _, ok := msg.(spinner.TickMsg); ok {
+			if m.loading {
+				m.spinner, _ = m.spinner.Update(msg)
+			}
+		}
+		return m, cmd
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -269,15 +299,21 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 
+	// Forward non-key messages to local search input when active
+	if m.localSearch.InputActive() {
+		var lsCmd tea.Cmd
+		m.localSearch, lsCmd = m.localSearch.Update(msg)
+		return m, lsCmd
+	}
+
 	return m, cmd
 }
 
 func (m RowBrowserModel) handleKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
+	if m.localSearch.InputActive() {
+		return m.handleLocalSearchKey(msg)
+	}
 	switch m.mode {
-	case modeFilterInput:
-		return m.handleFilterInputKey(msg)
-	case modeFilterPills:
-		return m.handleFilterPillsKey(msg)
 	case modeExportMenu:
 		return m.handleExportMenuKey(msg)
 	case modeExporting:
@@ -295,69 +331,27 @@ func (m RowBrowserModel) handleKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
 	}
 }
 
-func (m RowBrowserModel) handleFilterInputKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
+func (m RowBrowserModel) handleLocalSearchKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEnter:
-		input := strings.TrimSpace(m.filterInput.Value())
-		f, err := parseFilterInput(input)
-		if err != nil {
-			// Leave filter mode open so user can correct it; clear bad input
-			m.filterInput.SetValue("")
-			return m, nil
-		}
-		m.filters = append(m.filters, f)
-		m.filterInput.SetValue("")
-		m.filterInput.Blur()
-		m.mode = modeNormal
-		m.statusMsg = ""
-		if m.executor != nil {
-			m.loading = true
-			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
-		}
+		// Close input but keep highlights
+		m.localSearch = m.localSearch.withInputClosed()
 		return m, nil
 
 	case tea.KeyEsc:
-		m.filterInput.SetValue("")
-		m.filterInput.Blur()
-		m.mode = modeNormal
+		m.localSearch = m.localSearch.cleared()
 		return m, nil
 
 	default:
 		var cmd tea.Cmd
-		m.filterInput, cmd = m.filterInput.Update(msg)
+		m.localSearch, cmd = m.localSearch.Update(msg)
+		// Recompute matches after input changes
+		if m.result != nil {
+			q := m.localSearch.textInput.Value()
+			m.localSearch = m.localSearch.recompute(q, m.result.Columns, m.result.Rows)
+		}
 		return m, cmd
 	}
-}
-
-func (m RowBrowserModel) handleFilterPillsKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
-	switch {
-	case key.Matches(msg, m.keys.Right):
-		if m.filterPillIdx < len(m.filters)-1 {
-			m.filterPillIdx++
-		}
-	case key.Matches(msg, m.keys.Left):
-		if m.filterPillIdx > 0 {
-			m.filterPillIdx--
-		}
-	case key.Matches(msg, m.keys.RemoveFilter):
-		if len(m.filters) > 0 && m.filterPillIdx < len(m.filters) {
-			m.filters = append(m.filters[:m.filterPillIdx], m.filters[m.filterPillIdx+1:]...)
-			if m.filterPillIdx >= len(m.filters) && m.filterPillIdx > 0 {
-				m.filterPillIdx--
-			}
-			if len(m.filters) == 0 {
-				m.mode = modeNormal
-			}
-			m.statusMsg = ""
-			if m.executor != nil {
-				m.loading = true
-				return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
-			}
-		}
-	case key.Matches(msg, m.keys.Back):
-		m.mode = modeNormal
-	}
-	return m, nil
 }
 
 func (m RowBrowserModel) handleExportMenuKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
@@ -373,6 +367,12 @@ func (m RowBrowserModel) handleExportMenuKey(msg tea.KeyMsg) (RowBrowserModel, t
 }
 
 func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
+	// Esc clears local search if active (before checking drill stack)
+	if key.Matches(msg, m.keys.Back) && m.localSearch.IsActive() {
+		m.localSearch = m.localSearch.cleared()
+		return m, nil
+	}
+
 	// Back key pops the drill stack even while loading, so users can cancel a drill.
 	if key.Matches(msg, m.keys.Back) && len(m.drillStack) > 0 {
 		return m.popDrillStack()
@@ -383,16 +383,30 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 	}
 
 	switch {
-	case key.Matches(msg, m.keys.Filter):
-		cmd := m.filterInput.Focus()
-		m.mode = modeFilterInput
+	case key.Matches(msg, m.keys.QueryFilter):
+		return m.openFilterModal()
+
+	case key.Matches(msg, m.keys.LocalSearch):
+		var cmd tea.Cmd
+		m.localSearch, cmd = m.localSearch.withInputOpen()
 		return m, cmd
 
-	case key.Matches(msg, m.keys.FilterPills):
-		if len(m.filters) > 0 {
-			m.filterPillIdx = 0
-			m.mode = modeFilterPills
+	case key.Matches(msg, m.keys.QuickFilterCell):
+		return m.openQuickFilter()
+
+	case m.localSearch.IsActive() && key.Matches(msg, m.keys.NextMatch):
+		m.localSearch = m.localSearch.withNextMatch()
+		if idx := m.localSearch.CurrentMatchRow(); idx >= 0 {
+			m = m.scrollToRow(idx)
 		}
+		return m, nil
+
+	case m.localSearch.IsActive() && key.Matches(msg, m.keys.PrevMatch):
+		m.localSearch = m.localSearch.withPrevMatch()
+		if idx := m.localSearch.CurrentMatchRow(); idx >= 0 {
+			m = m.scrollToRow(idx)
+		}
+		return m, nil
 
 	case key.Matches(msg, m.keys.Sort):
 		m = m.cycleSort()
@@ -407,11 +421,13 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 
 	case key.Matches(msg, m.keys.NextPage):
 		if m.result.Page < m.result.TotalPages {
+			m.localSearch = m.localSearch.cleared()
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(m.result.Page+1))
 		}
 	case key.Matches(msg, m.keys.PrevPage):
 		if m.result.Page > 1 {
+			m.localSearch = m.localSearch.cleared()
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(m.result.Page-1))
 		}
@@ -434,7 +450,6 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 	case key.Matches(msg, m.keys.Right):
 		if m.colCursor < len(m.result.Columns)-1 {
 			m.colCursor++
-			// Scroll right if cursor moved past last visible column.
 			visible := visibleColumns(m.result.Columns, m.colWidths, m.colOffset, m.width)
 			if len(visible) > 0 && m.colCursor > visible[len(visible)-1] {
 				m.colOffset++
@@ -443,7 +458,6 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 	case key.Matches(msg, m.keys.Left):
 		if m.colCursor > 0 {
 			m.colCursor--
-			// Scroll left if cursor moved before first visible column.
 			if m.colCursor < m.colOffset {
 				m.colOffset = m.colCursor
 			}
@@ -456,6 +470,81 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 		return m.openCellViewer()
 	}
 	return m, nil
+}
+
+// openFilterModal opens the query filter modal with the current filter state.
+func (m RowBrowserModel) openFilterModal() (RowBrowserModel, tea.Cmd) {
+	var phFn func(int) string
+	if m.executor != nil {
+		phFn = m.executor.Placeholder
+	}
+	page := 1
+	pageSize := 50
+	if m.result != nil {
+		page = m.result.Page
+		pageSize = m.result.PageSize
+	}
+	m.filterModal = NewFilterModal(m.ds, m.result.Columns, m.filters, m.sort, page, pageSize, phFn)
+	m.filterModal.SetWidth(m.width)
+	m.mode = modeFilterModal
+	return m, nil
+}
+
+// openQuickFilter opens the filter modal pre-filled with the selected cell value.
+func (m RowBrowserModel) openQuickFilter() (RowBrowserModel, tea.Cmd) {
+	if m.result == nil || len(m.result.Rows) == 0 || m.rowCursor >= len(m.result.Rows) {
+		return m, nil
+	}
+	row := m.result.Rows[m.rowCursor]
+	col := m.result.Columns[m.colCursor]
+	cellValue := row[col.Name]
+	if cellValue == nil {
+		m.statusMsg = "= cannot filter on NULL"
+		return m, nil
+	}
+	rawStr := formatCellValue(cellValue)
+	typeCat := resolveTypeCategory(col.Type)
+	var valueStr string
+	switch typeCat {
+	case typeCatText, typeCatDateTime:
+		valueStr = "'" + rawStr + "'"
+	default:
+		valueStr = rawStr
+	}
+
+	var phFn func(int) string
+	if m.executor != nil {
+		phFn = m.executor.Placeholder
+	}
+	page := 1
+	pageSize := 50
+	if m.result != nil {
+		page = m.result.Page
+		pageSize = m.result.PageSize
+	}
+	m.filterModal = NewFilterModalQuickFilter(
+		m.ds, m.result.Columns, m.filters, m.sort,
+		page, pageSize, phFn,
+		col.Name, valueStr,
+	)
+	m.filterModal.SetWidth(m.width)
+	m.mode = modeFilterModal
+	return m, nil
+}
+
+// scrollToRow adjusts row cursor and offset to show rowIdx.
+func (m RowBrowserModel) scrollToRow(rowIdx int) RowBrowserModel {
+	m.rowCursor = rowIdx
+	visible := m.visibleRowCount()
+	if visible <= 0 {
+		return m
+	}
+	if m.rowCursor < m.rowOffset {
+		m.rowOffset = m.rowCursor
+	} else if m.rowCursor >= m.rowOffset+visible {
+		m.rowOffset = m.rowCursor - visible + 1
+	}
+	return m
 }
 
 // handleDrillDown navigates from the selected FK cell into the referenced table.
@@ -511,6 +600,7 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 	m.err = nil
 	m.statusMsg = ""
 	m.mode = modeNormal
+	m.localSearch = m.localSearch.cleared()
 	m.drillSeq++
 
 	return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd(), m.loadPKColsCmd())
@@ -579,6 +669,7 @@ func (m RowBrowserModel) popDrillStack() (RowBrowserModel, tea.Cmd) {
 	m.err = nil
 	m.statusMsg = ""
 	m.mode = modeNormal
+	m.localSearch = m.localSearch.cleared()
 	m.drillSeq++ // invalidate any in-flight child loads
 
 	return m, nil
@@ -680,9 +771,17 @@ func (m RowBrowserModel) IsLoading() bool              { return m.loading }
 func (m RowBrowserModel) Err() error                   { return m.err }
 func (m RowBrowserModel) Filters() []dataset.Filter    { return m.filters }
 func (m RowBrowserModel) ActiveSort() *dataset.Sort    { return m.sort }
-func (m RowBrowserModel) FilterInputActive() bool      { return m.mode == modeFilterInput }
-func (m RowBrowserModel) FilterPillsActive() bool      { return m.mode == modeFilterPills }
-func (m RowBrowserModel) ExportMenuActive() bool       { return m.mode == modeExportMenu }
+func (m RowBrowserModel) IsFilterModalOpen() bool      { return m.mode == modeFilterModal }
+func (m RowBrowserModel) IsLocalSearchInputActive() bool {
+	return m.localSearch.InputActive()
+}
+func (m RowBrowserModel) ExportMenuActive() bool { return m.mode == modeExportMenu }
+
+// BlocksGlobalKeys returns true when the row browser is consuming keys that
+// should not be intercepted by the App (modal open, local search input active).
+func (m RowBrowserModel) BlocksGlobalKeys() bool {
+	return m.mode == modeFilterModal || m.localSearch.InputActive()
+}
 
 // CancelExport cancels an in-progress export if one is running.
 func (m RowBrowserModel) CancelExport() {
@@ -708,7 +807,7 @@ func (m RowBrowserModel) visibleRowCount() int {
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
-	if m.mode == modeFilterInput || m.mode == modeExportMenu || m.mode == modeExporting {
+	if m.localSearch.InputActive() || m.mode == modeExportMenu || m.mode == modeExporting {
 		bottomBarLines = 1
 	}
 	tableHeight := m.height - parentLines - filterPillLines - bottomBarLines
@@ -726,15 +825,13 @@ func (m RowBrowserModel) IsFKColumn() bool {
 // NeedsBackKey returns true when the row browser is consuming the Back key
 // internally, so the app should not intercept it.
 func (m RowBrowserModel) NeedsBackKey() bool {
-	return m.mode != modeNormal || len(m.drillStack) > 0
+	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0
 }
 
 // NeedsTabKey returns true when the row browser is consuming Tab internally
-// (filter pill navigation or filter input), so App should not intercept Tab as a focus switch.
+// (filter modal field cycling), so App should not intercept Tab as a focus switch.
 func (m RowBrowserModel) NeedsTabKey() bool {
-	return m.mode == modeFilterInput ||
-		(m.mode == modeNormal && len(m.filters) > 0) ||
-		m.mode == modeFilterPills
+	return m.mode == modeFilterModal
 }
 
 func (m RowBrowserModel) exportProgressText() string {
@@ -744,6 +841,9 @@ func (m RowBrowserModel) exportProgressText() string {
 func (m RowBrowserModel) StatusLine() string {
 	if m.mode == modeExporting {
 		return m.exportProgressText()
+	}
+	if m.localSearch.IsActive() {
+		return m.localSearch.StatusText()
 	}
 	if m.statusMsg != "" {
 		return m.statusMsg
@@ -777,6 +877,11 @@ func (m RowBrowserModel) StatusLine() string {
 func (m RowBrowserModel) View() string {
 	if m.width == 0 {
 		return ""
+	}
+
+	// Filter modal takes the full view area.
+	if m.mode == modeFilterModal {
+		return style.Content.Width(m.width).Height(m.height).Render(m.filterModal.View())
 	}
 
 	// Full-screen spinner for the initial root-level load (no parent levels yet).
@@ -826,7 +931,7 @@ func (m RowBrowserModel) View() string {
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
-	if m.mode == modeFilterInput || m.mode == modeExportMenu || m.mode == modeExporting {
+	if m.localSearch.InputActive() || m.mode == modeExportMenu || m.mode == modeExporting {
 		bottomBarLines = 1
 	}
 
@@ -836,12 +941,12 @@ func (m RowBrowserModel) View() string {
 	}
 	sections = append(sections, m.renderTable(tableHeight))
 
-	// Bottom bar (filter input / export menu / exporting)
-	switch m.mode {
-	case modeFilterInput:
-		bar := style.FilterBar.Width(m.width).Render(m.filterInput.View())
+	// Bottom bar (local search / export menu / exporting)
+	switch {
+	case m.localSearch.InputActive():
+		bar := style.FilterBar.Width(m.width).Render(m.localSearch.View(m.width))
 		sections = append(sections, bar)
-	case modeExportMenu:
+	case m.mode == modeExportMenu:
 		bar := style.ExportBar.Width(m.width).Render(
 			style.StatusKey.Render("c") + style.StatusDesc.Render(" CSV") +
 				"  " +
@@ -850,7 +955,7 @@ func (m RowBrowserModel) View() string {
 				style.StatusKey.Render("esc") + style.StatusDesc.Render(" cancel"),
 		)
 		sections = append(sections, bar)
-	case modeExporting:
+	case m.mode == modeExporting:
 		bar := style.ExportBar.Width(m.width).Render(
 			style.Progress.Render(m.exportProgressText()),
 		)
@@ -864,13 +969,9 @@ func (m RowBrowserModel) View() string {
 
 func (m RowBrowserModel) renderFilterPills() string {
 	var parts []string
-	for i, f := range m.filters {
+	for _, f := range m.filters {
 		label := fmt.Sprintf("%s%s%v", f.Column, f.Operator, f.Value)
-		if m.mode == modeFilterPills && i == m.filterPillIdx {
-			parts = append(parts, style.FilterPillSelected.Render(label+" ✕"))
-		} else {
-			parts = append(parts, style.FilterPill.Render(label))
-		}
+		parts = append(parts, style.FilterPill.Render(label))
 	}
 	return strings.Join(parts, " ")
 }
@@ -901,7 +1002,7 @@ func (m RowBrowserModel) renderSavedLevel(level savedLevel) string {
 		if i >= compactParentRows {
 			break
 		}
-		lines = append(lines, buildRow(row, cols, level.colWidths, visible, i, level.rowCursor, level.colCursor, fkCols))
+		lines = append(lines, buildRow(row, cols, level.colWidths, visible, i, level.rowCursor, level.colCursor, fkCols, nil, ""))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -955,11 +1056,18 @@ func (m RowBrowserModel) renderTable(height int) string {
 	if startRow > len(rows) {
 		startRow = 0
 	}
+
+	searchQuery := ""
+	if m.localSearch.IsActive() {
+		searchQuery = m.localSearch.Query()
+	}
+
 	for i, row := range rows[startRow:] {
 		if i >= maxRows {
 			break
 		}
-		lines = append(lines, buildRow(row, cols, m.colWidths, visible, startRow+i, m.rowCursor, m.colCursor, fkCols))
+		rowIdx := startRow + i
+		lines = append(lines, buildRow(row, cols, m.colWidths, visible, rowIdx, m.rowCursor, m.colCursor, fkCols, &m.localSearch, searchQuery))
 	}
 
 	return strings.Join(lines, "\n")
@@ -1037,8 +1145,15 @@ func buildSeparator(widths []int, visible []int) string {
 	return strings.Join(parts, "  ")
 }
 
-func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int, rowIdx, rowCursor, colCursor int, fkCols map[string]bool) string {
+// buildRow renders a single data row, applying local search dimming/highlighting.
+func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int, rowIdx, rowCursor, colCursor int, fkCols map[string]bool, ls *LocalSearchState, searchQuery string) string {
 	isSelectedRow := rowIdx == rowCursor
+
+	// Determine search state for this row
+	isSearchActive := ls != nil && ls.IsActive() && searchQuery != ""
+	isMatchRow := isSearchActive && ls.IsMatch(rowIdx)
+	isCurrentMatch := isSearchActive && ls.CurrentMatchRow() == rowIdx
+
 	parts := make([]string, len(visible))
 	for j, i := range visible {
 		colName := cols[i].Name
@@ -1060,9 +1175,17 @@ func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int,
 		case isCursorCell:
 			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
 			parts[j] = style.CursorCell.Render(cell)
+		case isCurrentMatch && !isSelectedRow:
+			// Highlighted as the current navigation match
+			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
+			parts[j] = style.RowHighlight.Render(cell)
 		case isSelectedRow:
 			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
 			parts[j] = style.RowHighlight.Render(cell)
+		case isSearchActive && !isMatchRow:
+			// Dim non-matching rows
+			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
+			parts[j] = style.Muted.Render(cell)
 		case v == nil:
 			cell := runewidth.FillRight(runewidth.Truncate("null", widths[i], "…"), widths[i])
 			parts[j] = style.NullValue.Render(cell)

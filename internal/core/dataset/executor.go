@@ -196,6 +196,12 @@ func (e *Executor) validateOptions(opts QueryOptions, colSet map[string]bool) er
 	return nil
 }
 
+// Placeholder returns the SQL parameter placeholder for position n (1-based),
+// delegating to the underlying driver (e.g. "$1" for PostgreSQL, "?" for MySQL).
+func (e *Executor) Placeholder(n int) string {
+	return e.client.Placeholder(n)
+}
+
 // ForeignKeys returns FK relationships for the given table.
 func (e *Executor) ForeignKeys(ctx context.Context, table string) ([]db.ForeignKey, error) {
 	return e.client.ForeignKeys(ctx, table)
@@ -220,6 +226,49 @@ func (e *Executor) PrimaryKeyColumns(ctx context.Context, table string) ([]strin
 		}
 	}
 	return nil, nil
+}
+
+// PreviewSQLLines builds a display-only SQL query for the given dataset, broken into
+// clause-per-line for rendering in a UI. It is never executed against a database.
+// placeholder is the driver's positional placeholder function (e.g. "$1" for Postgres).
+func PreviewSQLLines(ds Dataset, filters []Filter, sort *Sort, page, pageSize int, placeholder func(int) string) []string {
+	from := ds.Table
+	if from == "" {
+		from = ds.Name
+	}
+
+	var lines []string
+	lines = append(lines, "SELECT * FROM "+from)
+
+	if len(filters) > 0 {
+		var conds []string
+		for i, f := range filters {
+			op := validOperators[strings.ToLower(f.Operator)]
+			if op == "" {
+				op = strings.ToUpper(f.Operator)
+			}
+			conds = append(conds, f.Column+" "+op+" "+placeholder(i+1))
+		}
+		lines = append(lines, "WHERE "+strings.Join(conds, " AND "))
+	}
+
+	if sort != nil {
+		dir := "ASC"
+		if sort.Desc {
+			dir = "DESC"
+		}
+		lines = append(lines, "ORDER BY "+sort.Column+" "+dir)
+	}
+
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	offset := (page - 1) * pageSize
+	if offset < 0 {
+		offset = 0
+	}
+	lines = append(lines, fmt.Sprintf("LIMIT %d OFFSET %d", pageSize, offset))
+	return lines
 }
 
 // extractCount pulls the _dc_count value from a COUNT(*) result row.
