@@ -228,28 +228,17 @@ func (e *Executor) PrimaryKeyColumns(ctx context.Context, table string) ([]strin
 	return nil, nil
 }
 
-// PreviewSQLLines builds a display-only SQL query for the given dataset, broken into
-// clause-per-line for rendering in a UI. It is never executed against a database.
-// placeholder is the driver's positional placeholder function (e.g. "$1" for Postgres).
-func PreviewSQLLines(ds Dataset, filters []Filter, sort *Sort, page, pageSize int, placeholder func(int) string) []string {
-	from := ds.Table
-	if from == "" {
-		from = ds.Name
-	}
+// SQLLines returns a clause-per-line representation of the query that would be
+// executed for the given options, reusing the same builders as Query.
+func (e *Executor) SQLLines(ds Dataset, filters []Filter, sort *Sort, page, pageSize int) []string {
+	from := e.fromClause(ds)
+	where, _ := e.buildWhere(filters, 1)
 
 	var lines []string
 	lines = append(lines, "SELECT * FROM "+from)
 
-	if len(filters) > 0 {
-		var conds []string
-		for i, f := range filters {
-			op := validOperators[strings.ToLower(f.Operator)]
-			if op == "" {
-				op = strings.ToUpper(f.Operator)
-			}
-			conds = append(conds, f.Column+" "+op+" "+placeholder(i+1))
-		}
-		lines = append(lines, "WHERE "+strings.Join(conds, " AND "))
+	if where != "" {
+		lines = append(lines, strings.TrimPrefix(where, " "))
 	}
 
 	if sort != nil {

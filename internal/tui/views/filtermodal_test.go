@@ -1,7 +1,6 @@
 package views_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -27,12 +26,12 @@ func testDS() dataset.Dataset {
 	return dataset.Dataset{Name: "orders", Table: "orders"}
 }
 
-func pgPlaceholder(n int) string {
-	return fmt.Sprintf("$%d", n)
+func testExecutor() *dataset.Executor {
+	return dataset.NewExecutor(&stubClient{})
 }
 
 func newModal(filters []dataset.Filter) views.FilterModalModel {
-	return views.NewFilterModal(testDS(), testCols(), filters, nil, 1, 50, pgPlaceholder)
+	return views.NewFilterModal(testDS(), testCols(), filters, nil, 1, 50, testExecutor())
 }
 
 // --- Tests ---
@@ -241,7 +240,7 @@ func TestFilterModal_IntegerRejectsLetters(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	filters := m.Filters()
 	if len(filters) == 1 {
-		val := fmt.Sprint(filters[0].Value)
+		val := filters[0].Value.(string)
 		if strings.ContainsAny(val, "ad") {
 			t.Errorf("integer field accepted letters, got value: %v", val)
 		}
@@ -250,7 +249,7 @@ func TestFilterModal_IntegerRejectsLetters(t *testing.T) {
 
 func TestFilterModal_QuickFilter_Prefilled(t *testing.T) {
 	m := views.NewFilterModalQuickFilter(
-		testDS(), testCols(), nil, nil, 1, 50, pgPlaceholder,
+		testDS(), testCols(), nil, nil, 1, 50, testExecutor(),
 		"status", "'active'",
 	)
 
@@ -282,7 +281,7 @@ func TestFilterModal_SQLPreview_WithFilters(t *testing.T) {
 
 func TestFilterModal_SQLPreview_WithSort(t *testing.T) {
 	sort := &dataset.Sort{Column: "id", Desc: false}
-	m := views.NewFilterModal(testDS(), testCols(), nil, sort, 1, 50, pgPlaceholder)
+	m := views.NewFilterModal(testDS(), testCols(), nil, sort, 1, 50, testExecutor())
 	m.SetWidth(80)
 	v := m.View()
 
