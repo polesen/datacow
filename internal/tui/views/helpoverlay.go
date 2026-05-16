@@ -50,11 +50,18 @@ func (v *HelpOverlayView) View() string {
 			},
 		},
 		{
+			title: "Query Filter",
+			bindings: []key.Binding{
+				v.keys.QueryFilter, v.keys.LocalSearch,
+				v.keys.QuickFilterCell, v.keys.NextMatch,
+				v.keys.PrevMatch,
+			},
+		},
+		{
 			title: "Data",
 			bindings: []key.Binding{
-				v.keys.Filter, v.keys.RemoveFilter,
-				v.keys.FilterPills, v.keys.Sort,
-				v.keys.Export, v.keys.ViewCell,
+				v.keys.Sort, v.keys.Export,
+				v.keys.ViewCell,
 			},
 		},
 		{

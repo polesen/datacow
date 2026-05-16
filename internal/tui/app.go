@@ -451,7 +451,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if a.screen == screenSplit {
-			inFilterInput := a.rowBrowserReady && a.rowBrowser.FilterInputActive()
+			inFilterInput := a.rowBrowserReady && a.rowBrowser.BlocksGlobalKeys()
 			if !inFilterInput {
 				switch msg.String() {
 				case "1":
@@ -943,13 +943,14 @@ func (a *App) renderRowBrowserStatusBar(runningPart string) string {
 		keyParts = append(keyParts, style.StatusKey.Render("z")+style.StatusDesc.Render(" restore"))
 	}
 	keyParts = append(keyParts,
-		style.StatusKey.Render("q")+style.StatusDesc.Render(" quit"),
+		style.StatusKey.Render("Q")+style.StatusDesc.Render(" quit"),
 		style.StatusKey.Render("esc")+style.StatusDesc.Render(escDesc),
 		style.StatusKey.Render("[")+style.StatusDesc.Render(" prev"),
 		style.StatusKey.Render("]")+style.StatusDesc.Render(" next"),
 		style.StatusKey.Render("↑↓")+style.StatusDesc.Render(" row"),
 		style.StatusKey.Render("←→")+style.StatusDesc.Render(" col"),
-		style.StatusKey.Render("/")+style.StatusDesc.Render(" filter"),
+		style.StatusKey.Render("q")+style.StatusDesc.Render(" filter"),
+		style.StatusKey.Render("/")+style.StatusDesc.Render(" search"),
 		style.StatusKey.Render("s")+style.StatusDesc.Render(" sort"),
 		style.StatusKey.Render("e")+style.StatusDesc.Render(" export"),
 	)

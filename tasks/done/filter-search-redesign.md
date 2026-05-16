@@ -262,3 +262,19 @@ calls, no changes to `dataset` or `core`.
 ## Definition of Done
 
 See [definition-of-done.md](../definition-of-done.md). All gates must pass.
+
+## As Implemented
+
+Decisions and divergences from the spec above.
+
+**SQL preview removed.** The spec included a live SQL preview section in the modal. Removed during implementation: the preview was a separate code path from `Executor.Query()`, so it could silently produce different SQL from what actually executes. The query log already shows the real SQL that ran. There is no value in a preview that might lie.
+
+**Form fields rendered on one line.** The spec showed Column, Op, and Value as three stacked rows. Implemented as a single inline row — `> [column…  ] [= ▾] [value…]` — which is more compact and reads left-to-right like a WHERE clause.
+
+**Text values are not pre-filled with `''`.** The spec said text/datetime fields should pre-fill `''` with the cursor inside the quotes. Removed: filter values are SQL parameters, not interpolated strings. Wrapping them in quotes means the quotes become part of the value and nothing matches. The type tip explains this.
+
+**JSON type is a separate category.** The spec grouped `json`/`jsonb` under text (ops: `=`, `like`). `like` on a JSON column produces a DB error. Added `typeCatJSON` → ops: `=` only.
+
+**Local search filters rows, not dims them.** The spec said non-matching rows are dimmed. Implemented as filtering: only matching rows are shown. Dimming keeps context but makes it hard to scan; hiding rows is how k9s-style search works.
+
+**Quick-filter value is not single-quoted.** The spec said text cells should pre-fill as `'value'`. Same reason as above — values are parameters, not SQL literals. The cell value is placed directly in the value field.

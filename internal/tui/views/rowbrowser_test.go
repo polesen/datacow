@@ -233,22 +233,62 @@ func TestRowBrowserModel_View(t *testing.T) {
 	}
 }
 
-// --- Filter tests ---
+// --- Filter modal tests ---
 
-func TestRowBrowserModel_FilterInput_Open(t *testing.T) {
+func TestRowBrowserModel_FilterModal_Open(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	// Press /
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	if !m.FilterInputActive() {
-		t.Error("expected filter input to be active after /")
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if !m.IsFilterModalOpen() {
+		t.Error("expected filter modal open after 'q'")
 	}
 }
 
-func TestRowBrowserModel_FilterInput_Cancel(t *testing.T) {
+func TestRowBrowserModel_FilterModal_Cancel(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.IsFilterModalOpen() {
+		t.Error("expected filter modal closed after esc")
+	}
+}
+
+func TestRowBrowserModel_FilterModal_Apply(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	// Apply with Ctrl+J closes modal
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	if m.IsFilterModalOpen() {
+		t.Error("expected filter modal closed after Ctrl+J")
+	}
+}
+
+// --- Local search tests ---
+
+func TestRowBrowserModel_LocalSearch_Open(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !m.IsLocalSearchInputActive() {
+		t.Error("expected local search input active after '/'")
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_CloseWithEsc(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
@@ -256,82 +296,67 @@ func TestRowBrowserModel_FilterInput_Cancel(t *testing.T) {
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if m.FilterInputActive() {
-		t.Error("expected filter input to be closed after esc")
+	if m.IsLocalSearchInputActive() {
+		t.Error("expected local search input closed after esc")
 	}
 }
 
-func TestRowBrowserModel_FilterInput_AddFilter(t *testing.T) {
+func TestRowBrowserModel_LocalSearch_FilteredView(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
-	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 3,
+		[]db.Column{{Name: "name"}},
+		[]map[string]any{
+			{"name": "Alice"},
+			{"name": "Bob"},
+			{"name": "Alice2"},
+		},
+	)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
+	// Open search and type "alice"
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	// Type "id=1"
-	for _, r := range "id=1" {
+	for _, r := range "alice" {
 		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if m.FilterInputActive() {
-		t.Error("expected filter input closed after enter")
+	v := m.View()
+	// Matching rows visible
+	if !strings.Contains(v, "Alice") {
+		t.Error("filtered view should show Alice")
 	}
-	if len(m.Filters()) != 1 {
-		t.Fatalf("expected 1 filter, got %d", len(m.Filters()))
+	if !strings.Contains(v, "Alice2") {
+		t.Error("filtered view should show Alice2")
 	}
-	f := m.Filters()[0]
-	if f.Column != "id" || f.Operator != "=" || f.Value != "1" {
-		t.Errorf("unexpected filter: %+v", f)
+	// Non-matching row must NOT appear
+	if strings.Contains(v, "Bob") {
+		t.Error("filtered view must not show Bob")
+	}
+
+	// n advances to next match
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	// N goes back — no crash
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
+
+	if m.IsLocalSearchInputActive() {
+		t.Error("search input should be closed after Enter")
 	}
 }
 
-func TestRowBrowserModel_FilterInput_InvalidFilter(t *testing.T) {
+func TestRowBrowserModel_QuickFilter_Open(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
-	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}, {Name: "name"}},
+		[]map[string]any{{"id": int64(1), "name": "Alice"}},
+	)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	for _, r := range "noop" {
-		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-
-	// Should stay in filter input mode (or close with an error — either is fine)
-	// Main assertion: no filter was added
-	if len(m.Filters()) != 0 {
-		t.Errorf("expected no filters after invalid input, got %d", len(m.Filters()))
-	}
-}
-
-func TestRowBrowserModel_FilterPills_Remove(t *testing.T) {
-	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
-	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}, {Name: "name"}}, nil)
-	m, _ = m.Update(views.RowsLoadedMsg(result))
-
-	// Add a filter by simulating state
-	m, _ = m.Update(views.RowsLoadedMsg(result))
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	for _, r := range "id=1" {
-		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(m.Filters()) != 1 {
-		t.Fatalf("setup: expected 1 filter, got %d", len(m.Filters()))
-	}
-
-	// Enter filter pill mode (Tab)
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if !m.FilterPillsActive() {
-		t.Error("expected filter pill mode active after tab")
-	}
-
-	// Press x to remove the selected pill
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-	if len(m.Filters()) != 0 {
-		t.Errorf("expected 0 filters after removing, got %d", len(m.Filters()))
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'='}})
+	if !m.IsFilterModalOpen() {
+		t.Error("expected filter modal open after '='")
 	}
 }
 
@@ -434,9 +459,9 @@ func TestRowBrowserModel_NeedsBackKey(t *testing.T) {
 		t.Error("NeedsBackKey should be false in normal mode")
 	}
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if !m.NeedsBackKey() {
-		t.Error("NeedsBackKey should be true in filter input mode")
+		t.Error("NeedsBackKey should be true when filter modal is open")
 	}
 }
 
