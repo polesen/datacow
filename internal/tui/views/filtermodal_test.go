@@ -26,12 +26,8 @@ func testDS() dataset.Dataset {
 	return dataset.Dataset{Name: "orders", Table: "orders"}
 }
 
-func testExecutor() *dataset.Executor {
-	return dataset.NewExecutor(&stubClient{})
-}
-
 func newModal(filters []dataset.Filter) views.FilterModalModel {
-	return views.NewFilterModal(testDS(), testCols(), filters, nil, 1, 50, testExecutor())
+	return views.NewFilterModal(testDS(), testCols(), filters)
 }
 
 // --- Tests ---
@@ -248,10 +244,7 @@ func TestFilterModal_IntegerRejectsLetters(t *testing.T) {
 }
 
 func TestFilterModal_QuickFilter_Prefilled(t *testing.T) {
-	m := views.NewFilterModalQuickFilter(
-		testDS(), testCols(), nil, nil, 1, 50, testExecutor(),
-		"status", "'active'",
-	)
+	m := views.NewFilterModalQuickFilter(testDS(), testCols(), nil, "status", "'active'")
 
 	m.SetWidth(80)
 	v := m.View()
@@ -263,39 +256,12 @@ func TestFilterModal_QuickFilter_Prefilled(t *testing.T) {
 	}
 }
 
-func TestFilterModal_SQLPreview_WithFilters(t *testing.T) {
-	existing := []dataset.Filter{
-		{Column: "status", Operator: "=", Value: "'active'"},
-		{Column: "id", Operator: ">", Value: "100"},
-	}
-	m := newModal(existing)
-	m.SetWidth(80)
-	v := m.View()
-
-	for _, want := range []string{"$1", "$2", "WHERE", "LIMIT 50 OFFSET 0"} {
-		if !strings.Contains(v, want) {
-			t.Errorf("SQL preview missing %q, got:\n%s", want, v)
-		}
-	}
-}
-
-func TestFilterModal_SQLPreview_WithSort(t *testing.T) {
-	sort := &dataset.Sort{Column: "id", Desc: false}
-	m := views.NewFilterModal(testDS(), testCols(), nil, sort, 1, 50, testExecutor())
-	m.SetWidth(80)
-	v := m.View()
-
-	if !strings.Contains(v, "ORDER BY id ASC") {
-		t.Errorf("SQL preview should contain ORDER BY, got:\n%s", v)
-	}
-}
-
 func TestFilterModal_View_Sections(t *testing.T) {
 	m := newModal(nil)
 	m.SetWidth(80)
 	v := m.View()
 
-	for _, want := range []string{"Query Filter", "Active filters", "Edit / add filter", "SQL preview"} {
+	for _, want := range []string{"Query Filter", "Active filters", "Edit / add filter"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("View() missing section %q", want)
 		}

@@ -26,12 +26,8 @@ const (
 // It manages a working copy of the filter list, editable before applying.
 type FilterModalModel struct {
 	// context (set on open, read-only)
-	ds       dataset.Dataset
-	columns  []db.Column
-	sort     *dataset.Sort
-	page     int
-	pageSize int
-	executor *dataset.Executor
+	ds      dataset.Dataset
+	columns []db.Column
 
 	// working filter list (pending, not yet applied to row browser)
 	filters    []dataset.Filter
@@ -66,9 +62,6 @@ func NewFilterModal(
 	ds dataset.Dataset,
 	columns []db.Column,
 	filters []dataset.Filter,
-	sort *dataset.Sort,
-	page, pageSize int,
-	executor *dataset.Executor,
 ) FilterModalModel {
 	col := textinput.New()
 	col.Placeholder = "column name"
@@ -79,13 +72,9 @@ func NewFilterModal(
 	val.Width = 30
 
 	m := FilterModalModel{
-		ds:       ds,
-		columns:  columns,
-		sort:     sort,
-		page:     page,
-		pageSize: pageSize,
-		executor: executor,
-		filters:  make([]dataset.Filter, len(filters)),
+		ds:      ds,
+		columns: columns,
+		filters: make([]dataset.Filter, len(filters)),
 		listCursor:    -1,
 		editingIdx:    -1,
 		activeField:   fieldColumn,
@@ -110,12 +99,9 @@ func NewFilterModalQuickFilter(
 	ds dataset.Dataset,
 	columns []db.Column,
 	filters []dataset.Filter,
-	sort *dataset.Sort,
-	page, pageSize int,
-	executor *dataset.Executor,
 	colName, value string,
 ) FilterModalModel {
-	m := NewFilterModal(ds, columns, filters, sort, page, pageSize, executor)
+	m := NewFilterModal(ds, columns, filters)
 	m.columnInput.SetValue(colName)
 	m.selColIdx = m.findColumnIdx(colName)
 	if m.selColIdx >= 0 {
@@ -590,14 +576,6 @@ func (m FilterModalModel) findColumnIdx(name string) int {
 	return -1
 }
 
-// buildSQLPreview returns clause-per-line SQL for the SQL preview section.
-func (m FilterModalModel) buildSQLPreview() []string {
-	if m.executor == nil {
-		return nil
-	}
-	return m.executor.SQLLines(m.ds, m.filters, m.sort, m.page, m.pageSize)
-}
-
 // View renders the filter modal as a centered box.
 func (m FilterModalModel) View() string {
 	innerW := m.width - 4
@@ -725,13 +703,6 @@ func (m FilterModalModel) View() string {
 		lines = append(lines, style.Muted.Render(helpLine))
 	}
 	lines = append(lines, style.Muted.Render(" "+typeTip(m.typeCat)))
-
-	// --- SQL preview ---
-	lines = append(lines, "")
-	lines = append(lines, renderModalSep("SQL preview", innerW))
-	for _, sqlLine := range m.buildSQLPreview() {
-		lines = append(lines, style.Muted.Render("   "+sqlLine))
-	}
 
 	// --- Footer ---
 	lines = append(lines, "")

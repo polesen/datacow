@@ -196,12 +196,6 @@ func (e *Executor) validateOptions(opts QueryOptions, colSet map[string]bool) er
 	return nil
 }
 
-// Placeholder returns the SQL parameter placeholder for position n (1-based),
-// delegating to the underlying driver (e.g. "$1" for PostgreSQL, "?" for MySQL).
-func (e *Executor) Placeholder(n int) string {
-	return e.client.Placeholder(n)
-}
-
 // ForeignKeys returns FK relationships for the given table.
 func (e *Executor) ForeignKeys(ctx context.Context, table string) ([]db.ForeignKey, error) {
 	return e.client.ForeignKeys(ctx, table)
@@ -226,38 +220,6 @@ func (e *Executor) PrimaryKeyColumns(ctx context.Context, table string) ([]strin
 		}
 	}
 	return nil, nil
-}
-
-// SQLLines returns a clause-per-line representation of the query that would be
-// executed for the given options, reusing the same builders as Query.
-func (e *Executor) SQLLines(ds Dataset, filters []Filter, sort *Sort, page, pageSize int) []string {
-	from := e.fromClause(ds)
-	where, _ := e.buildWhere(filters, 1)
-
-	var lines []string
-	lines = append(lines, "SELECT * FROM "+from)
-
-	if where != "" {
-		lines = append(lines, strings.TrimPrefix(where, " "))
-	}
-
-	if sort != nil {
-		dir := "ASC"
-		if sort.Desc {
-			dir = "DESC"
-		}
-		lines = append(lines, "ORDER BY "+sort.Column+" "+dir)
-	}
-
-	if pageSize <= 0 {
-		pageSize = 50
-	}
-	offset := (page - 1) * pageSize
-	if offset < 0 {
-		offset = 0
-	}
-	lines = append(lines, fmt.Sprintf("LIMIT %d OFFSET %d", pageSize, offset))
-	return lines
 }
 
 // extractCount pulls the _dc_count value from a COUNT(*) result row.

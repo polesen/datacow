@@ -469,13 +469,7 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 
 // openFilterModal opens the query filter modal with the current filter state.
 func (m RowBrowserModel) openFilterModal() (RowBrowserModel, tea.Cmd) {
-	page := 1
-	pageSize := 50
-	if m.result != nil {
-		page = m.result.Page
-		pageSize = m.result.PageSize
-	}
-	m.filterModal = NewFilterModal(m.ds, m.result.Columns, m.filters, m.sort, page, pageSize, m.executor)
+	m.filterModal = NewFilterModal(m.ds, m.result.Columns, m.filters)
 	m.filterModal.SetWidth(m.width)
 	m.mode = modeFilterModal
 	return m, nil
@@ -493,19 +487,7 @@ func (m RowBrowserModel) openQuickFilter() (RowBrowserModel, tea.Cmd) {
 		m.statusMsg = "= cannot filter on NULL"
 		return m, nil
 	}
-	valueStr := formatCellValue(cellValue)
-
-	page := 1
-	pageSize := 50
-	if m.result != nil {
-		page = m.result.Page
-		pageSize = m.result.PageSize
-	}
-	m.filterModal = NewFilterModalQuickFilter(
-		m.ds, m.result.Columns, m.filters, m.sort,
-		page, pageSize, m.executor,
-		col.Name, valueStr,
-	)
+	m.filterModal = NewFilterModalQuickFilter(m.ds, m.result.Columns, m.filters, col.Name, formatCellValue(cellValue))
 	m.filterModal.SetWidth(m.width)
 	m.mode = modeFilterModal
 	return m, nil
