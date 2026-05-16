@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/polesen/datacow/internal/core/dataset"
 	"github.com/polesen/datacow/internal/core/db"
@@ -71,9 +72,11 @@ func NewFilterModal(
 ) FilterModalModel {
 	col := textinput.New()
 	col.Placeholder = "column name"
+	col.Width = 16
 
 	val := textinput.New()
 	val.Placeholder = "value"
+	val.Width = 30
 
 	m := FilterModalModel{
 		ds:            ds,
@@ -129,7 +132,13 @@ func NewFilterModalQuickFilter(
 }
 
 // SetWidth sets the modal's render width (used by tests and the row browser on resize).
-func (m *FilterModalModel) SetWidth(w int) { m.width = w }
+func (m *FilterModalModel) SetWidth(w int) {
+	m.width = w
+	// keep value input sized to fill the remaining row: 4(prompt)+16(col)+2+8(op)+2 = 32
+	if valW := w - 4 - 32 - 4; valW > 10 {
+		m.valueInput.Width = valW
+	}
+}
 
 // IsApplied returns true if the user confirmed the filter changes (Ctrl+Enter).
 func (m FilterModalModel) IsApplied() bool { return m.applied }
@@ -638,22 +647,64 @@ func (m FilterModalModel) View() string {
 		}
 	}
 
-	// --- Edit / add filter ---
+	// --- Edit / add filter (single inline row) ---
 	lines = append(lines, "")
 	lines = append(lines, " Edit / add filter:")
 
-	// Column field
 	colFocused := m.activeField == fieldColumn
-	colText := m.columnInput.View()
-	if !colFocused {
-		// Show plain value when not focused
-		colText = m.columnInput.Value()
-		if colText == "" {
-			colText = style.Muted.Render("column name")
+	opFocused := m.activeField == fieldOp
+	valFocused := m.activeField == fieldValue
+
+	// Column segment
+	var colSeg string
+	if colFocused {
+		colSeg = m.columnInput.View()
+	} else {
+		v := m.columnInput.Value()
+		if v == "" {
+			colSeg = style.Muted.Render(runewidth.FillRight("column…", 16))
+		} else {
+			colSeg = runewidth.FillRight(runewidth.Truncate(v, 16, "…"), 16)
 		}
 	}
-	colField := renderFormField("Column", colText, colFocused, innerW)
-	lines = append(lines, colField)
+
+	// Op segment
+	ops := allowedOps(m.typeCat)
+	opText := ops[0]
+	if m.opIdx < len(ops) {
+		opText = ops[m.opIdx]
+	}
+	var opSeg string
+	if opFocused {
+		opSeg = style.CursorCell.Render(" " + opText + " ▾ ")
+	} else {
+		opSeg = opText + " ▾"
+	}
+
+	// Value segment
+	var valSeg string
+	if m.typeCat == typeCatBoolean {
+		boolStr := "false"
+		if m.boolValue {
+			boolStr = "true"
+		}
+		if valFocused {
+			valSeg = style.CursorCell.Render(" " + boolStr + " ")
+		} else {
+			valSeg = boolStr
+		}
+	} else if valFocused {
+		valSeg = m.valueInput.View()
+	} else {
+		v := m.valueInput.Value()
+		if v == "" {
+			valSeg = style.Muted.Render("value…")
+		} else {
+			valSeg = v
+		}
+	}
+
+	lines = append(lines, "  > "+colSeg+"  "+opSeg+"  "+valSeg)
 
 	// Dropdown (shown when Column field is focused)
 	if colFocused && len(m.colDropdown) > 0 {
@@ -664,49 +715,12 @@ func (m FilterModalModel) View() string {
 		for i := 0; i < maxShow; i++ {
 			name := m.colDropdown[i]
 			if i == m.dropIdx {
-				lines = append(lines, style.CursorCell.Render("            ▶ "+name))
+				lines = append(lines, style.CursorCell.Render("    ▶ "+name))
 			} else {
-				lines = append(lines, style.Muted.Render("              "+name))
+				lines = append(lines, style.Muted.Render("      "+name))
 			}
 		}
 	}
-
-	// Op field
-	ops := allowedOps(m.typeCat)
-	opText := ops[0]
-	if m.opIdx < len(ops) {
-		opText = ops[m.opIdx]
-	}
-	opFocused := m.activeField == fieldOp
-	opDisplay := opText + " ▾"
-	if opFocused {
-		opDisplay = style.CursorCell.Render(" " + opDisplay + " ")
-	}
-	lines = append(lines, renderFormField("Op", opDisplay, false, innerW))
-
-	// Value field
-	valFocused := m.activeField == fieldValue
-	var valText string
-	if m.typeCat == typeCatBoolean {
-		if m.boolValue {
-			valText = "true"
-		} else {
-			valText = "false"
-		}
-		if valFocused {
-			valText = style.CursorCell.Render(" " + valText + " ")
-		}
-	} else {
-		if valFocused {
-			valText = m.valueInput.View()
-		} else {
-			valText = m.valueInput.Value()
-			if valText == "" {
-				valText = style.Muted.Render("value")
-			}
-		}
-	}
-	lines = append(lines, renderFormField("Value", valText, valFocused, innerW))
 
 	// Validation error
 	if m.valErr != "" {
@@ -738,16 +752,12 @@ func (m FilterModalModel) View() string {
 
 	// --- Footer ---
 	lines = append(lines, "")
-	lines = append(lines, style.Muted.Render(" Tab next field  Enter add filter / apply  d delete  Esc cancel"))
-	lines = append(lines, style.Muted.Render(" ↑↓/jk select filter  Enter on selected → edit it"))
+	lines = append(lines, style.Muted.Render(" Tab col→op→val  ←→/Space cycle op  Enter add · Enter again apply"))
+	lines = append(lines, style.Muted.Render(" ↑↓/jk select  Enter edit  d delete  Esc cancel"))
 
 	return renderModalBox("Query Filter · "+m.ds.Name, lines, innerW)
 }
 
-// renderFormField renders a labeled form field row.
-func renderFormField(label, value string, _ bool, _ int) string {
-	return fmt.Sprintf("   %-8s %s", label, value)
-}
 
 // renderModalSep renders a horizontal separator with a title.
 func renderModalSep(title string, innerW int) string {
