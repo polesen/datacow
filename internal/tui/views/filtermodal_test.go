@@ -231,8 +231,10 @@ func TestFilterModal_IntegerRejectsLetters(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 
-	// Type a letter — should be rejected
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	// Letters should be rejected (including 'd', which previously bypassed the guard)
+	for _, r := range "ad" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
 	// Type a digit — should be accepted
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
 
@@ -240,8 +242,8 @@ func TestFilterModal_IntegerRejectsLetters(t *testing.T) {
 	filters := m.Filters()
 	if len(filters) == 1 {
 		val := fmt.Sprint(filters[0].Value)
-		if strings.Contains(val, "a") {
-			t.Errorf("integer field accepted letter 'a', got value: %v", val)
+		if strings.ContainsAny(val, "ad") {
+			t.Errorf("integer field accepted letters, got value: %v", val)
 		}
 	}
 }

@@ -331,25 +331,6 @@ func (m FilterModalModel) handleValueKey(msg tea.KeyMsg) (FilterModalModel, tea.
 			m.listCursor--
 		}
 		return m, nil
-
-	case msg.String() == "j":
-		if m.listCursor < len(m.filters)-1 {
-			m.listCursor++
-		}
-		return m, nil
-
-	case msg.String() == "k":
-		if m.listCursor > 0 {
-			m.listCursor--
-		}
-		return m, nil
-
-	case msg.String() == "d" && m.typeCat != typeCatBoolean:
-		// 'd' in value field should delete the character unless it's a deletion key
-		// For non-boolean fields, let the textinput handle 'd' as a character
-		var cmd tea.Cmd
-		m.valueInput, cmd = m.valueInput.Update(msg)
-		return m, cmd
 	}
 
 	// Type-aware input filtering
