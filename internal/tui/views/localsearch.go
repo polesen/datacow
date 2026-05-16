@@ -42,6 +42,12 @@ func (ls LocalSearchState) Query() string { return ls.query }
 // MatchCount returns the number of rows that matched the search query.
 func (ls LocalSearchState) MatchCount() int { return len(ls.matchRows) }
 
+// MatchRows returns the ordered slice of row indices that match the query.
+func (ls LocalSearchState) MatchRows() []int { return ls.matchRows }
+
+// MatchCursor returns the index into MatchRows() of the currently selected match.
+func (ls LocalSearchState) MatchCursor() int { return ls.matchCursor }
+
 // CurrentMatchRow returns the row index of the current match for cursor nav, or -1.
 func (ls LocalSearchState) CurrentMatchRow() int {
 	if len(ls.matchRows) == 0 {

@@ -301,9 +301,10 @@ func TestRowBrowserModel_LocalSearch_CloseWithEsc(t *testing.T) {
 	}
 }
 
-func TestRowBrowserModel_LocalSearch_NextPrev(t *testing.T) {
+func TestRowBrowserModel_LocalSearch_FilteredView(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	result := makeResult(1, 1, 3,
 		[]db.Column{{Name: "name"}},
 		[]map[string]any{
@@ -321,11 +322,24 @@ func TestRowBrowserModel_LocalSearch_NextPrev(t *testing.T) {
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	// n advances
+	v := m.View()
+	// Matching rows visible
+	if !strings.Contains(v, "Alice") {
+		t.Error("filtered view should show Alice")
+	}
+	if !strings.Contains(v, "Alice2") {
+		t.Error("filtered view should show Alice2")
+	}
+	// Non-matching row must NOT appear
+	if strings.Contains(v, "Bob") {
+		t.Error("filtered view must not show Bob")
+	}
+
+	// n advances to next match
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-	// N goes back
+	// N goes back — no crash
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
-	// No crash — search stays active
+
 	if m.IsLocalSearchInputActive() {
 		t.Error("search input should be closed after Enter")
 	}

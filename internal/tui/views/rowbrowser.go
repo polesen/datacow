@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -396,16 +397,10 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 
 	case m.localSearch.IsActive() && key.Matches(msg, m.keys.NextMatch):
 		m.localSearch = m.localSearch.withNextMatch()
-		if idx := m.localSearch.CurrentMatchRow(); idx >= 0 {
-			m = m.scrollToRow(idx)
-		}
 		return m, nil
 
 	case m.localSearch.IsActive() && key.Matches(msg, m.keys.PrevMatch):
 		m.localSearch = m.localSearch.withPrevMatch()
-		if idx := m.localSearch.CurrentMatchRow(); idx >= 0 {
-			m = m.scrollToRow(idx)
-		}
 		return m, nil
 
 	case key.Matches(msg, m.keys.Sort):
@@ -530,21 +525,6 @@ func (m RowBrowserModel) openQuickFilter() (RowBrowserModel, tea.Cmd) {
 	m.filterModal.SetWidth(m.width)
 	m.mode = modeFilterModal
 	return m, nil
-}
-
-// scrollToRow adjusts row cursor and offset to show rowIdx.
-func (m RowBrowserModel) scrollToRow(rowIdx int) RowBrowserModel {
-	m.rowCursor = rowIdx
-	visible := m.visibleRowCount()
-	if visible <= 0 {
-		return m
-	}
-	if m.rowCursor < m.rowOffset {
-		m.rowOffset = m.rowCursor
-	} else if m.rowCursor >= m.rowOffset+visible {
-		m.rowOffset = m.rowCursor - visible + 1
-	}
-	return m
 }
 
 // handleDrillDown navigates from the selected FK cell into the referenced table.
@@ -1052,22 +1032,34 @@ func (m RowBrowserModel) renderTable(height int) string {
 	lines := make([]string, 0, maxRows+2)
 	lines = append(lines, header, sep)
 
-	startRow := m.rowOffset
-	if startRow > len(rows) {
-		startRow = 0
-	}
-
-	searchQuery := ""
-	if m.localSearch.IsActive() {
-		searchQuery = m.localSearch.Query()
-	}
-
-	for i, row := range rows[startRow:] {
-		if i >= maxRows {
-			break
+	if m.localSearch.IsActive() && m.localSearch.Query() != "" {
+		matchRows := m.localSearch.MatchRows()
+		if len(matchRows) == 0 {
+			lines = append(lines, style.Muted.Render("  no matches for "+strconv.Quote(m.localSearch.Query())))
+		} else {
+			// Center the viewport on the current match.
+			cur := m.localSearch.MatchCursor()
+			start := max(0, cur-maxRows/2)
+			if start+maxRows > len(matchRows) {
+				start = max(0, len(matchRows)-maxRows)
+			}
+			for fi := start; fi < len(matchRows) && fi-start < maxRows; fi++ {
+				rowIdx := matchRows[fi]
+				lines = append(lines, buildRow(rows[rowIdx], cols, m.colWidths, visible, rowIdx, rowIdx, m.colCursor, fkCols, &m.localSearch, m.localSearch.Query()))
+			}
 		}
-		rowIdx := startRow + i
-		lines = append(lines, buildRow(row, cols, m.colWidths, visible, rowIdx, m.rowCursor, m.colCursor, fkCols, &m.localSearch, searchQuery))
+	} else {
+		startRow := m.rowOffset
+		if startRow > len(rows) {
+			startRow = 0
+		}
+		for i, row := range rows[startRow:] {
+			if i >= maxRows {
+				break
+			}
+			rowIdx := startRow + i
+			lines = append(lines, buildRow(row, cols, m.colWidths, visible, rowIdx, m.rowCursor, m.colCursor, fkCols, nil, ""))
+		}
 	}
 
 	return strings.Join(lines, "\n")
@@ -1149,9 +1141,7 @@ func buildSeparator(widths []int, visible []int) string {
 func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int, rowIdx, rowCursor, colCursor int, fkCols map[string]bool, ls *LocalSearchState, searchQuery string) string {
 	isSelectedRow := rowIdx == rowCursor
 
-	// Determine search state for this row
 	isSearchActive := ls != nil && ls.IsActive() && searchQuery != ""
-	isMatchRow := isSearchActive && ls.IsMatch(rowIdx)
 	isCurrentMatch := isSearchActive && ls.CurrentMatchRow() == rowIdx
 
 	parts := make([]string, len(visible))
@@ -1176,16 +1166,11 @@ func buildRow(row map[string]any, cols []db.Column, widths []int, visible []int,
 			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
 			parts[j] = style.CursorCell.Render(cell)
 		case isCurrentMatch && !isSelectedRow:
-			// Highlighted as the current navigation match
 			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
 			parts[j] = style.RowHighlight.Render(cell)
 		case isSelectedRow:
 			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
 			parts[j] = style.RowHighlight.Render(cell)
-		case isSearchActive && !isMatchRow:
-			// Dim non-matching rows
-			cell := runewidth.FillRight(runewidth.Truncate(raw, widths[i], "…"), widths[i])
-			parts[j] = style.Muted.Render(cell)
 		case v == nil:
 			cell := runewidth.FillRight(runewidth.Truncate("null", widths[i], "…"), widths[i])
 			parts[j] = style.NullValue.Render(cell)
