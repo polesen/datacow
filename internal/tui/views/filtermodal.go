@@ -226,9 +226,13 @@ func (m FilterModalModel) handleColumnKey(msg tea.KeyMsg) (FilterModalModel, tea
 		if m.dropIdx >= 0 && m.dropIdx < len(m.colDropdown) {
 			return m.acceptDropdownSelection(), nil
 		}
-		// No dropdown selection — load selected filter or move to Op
-		if m.listCursor >= 0 && m.listCursor < len(m.filters) {
-			return m.loadSelectedFilter(), nil
+		// Column empty: Enter on a highlighted filter edits it; with no selection, apply.
+		if m.columnInput.Value() == "" {
+			if m.listCursor >= 0 && m.listCursor < len(m.filters) {
+				return m.loadSelectedFilter(), nil
+			}
+			m.applied = true
+			return m, nil
 		}
 		return m.nextField(), nil
 
@@ -433,11 +437,10 @@ func (m FilterModalModel) submitForm() FilterModalModel {
 
 	if m.editingIdx >= 0 && m.editingIdx < len(m.filters) {
 		m.filters[m.editingIdx] = f
-		m.listCursor = m.editingIdx
 	} else {
 		m.filters = append(m.filters, f)
-		m.listCursor = len(m.filters) - 1
 	}
+	m.listCursor = -1
 
 	return m.resetForm()
 }
@@ -735,8 +738,8 @@ func (m FilterModalModel) View() string {
 
 	// --- Footer ---
 	lines = append(lines, "")
-	lines = append(lines, style.Muted.Render(" ↑↓ select filter  Enter edit  d delete  Tab next field"))
-	lines = append(lines, style.Muted.Render(" Ctrl+↵ apply  Esc cancel"))
+	lines = append(lines, style.Muted.Render(" Tab next field  Enter add filter / apply  d delete  Esc cancel"))
+	lines = append(lines, style.Muted.Render(" ↑↓/jk select filter  Enter on selected → edit it"))
 
 	return renderModalBox("Query Filter · "+m.ds.Name, lines, innerW)
 }

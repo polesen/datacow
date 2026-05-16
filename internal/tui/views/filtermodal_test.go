@@ -64,6 +64,35 @@ func TestFilterModal_ApplyViaCtrlJ(t *testing.T) {
 	}
 }
 
+func TestFilterModal_ApplyViaEnterAfterAddingFilter(t *testing.T) {
+	// Simulate the natural flow: add a filter, then press Enter to apply.
+	m := newModal(nil)
+
+	// Type column "id", Tab to Op, Tab to Value, type "42", Enter to add filter.
+	for _, r := range "id" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	for _, r := range "42" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // adds filter, returns to column field
+
+	if len(m.Filters()) != 1 {
+		t.Fatalf("expected 1 filter after entry, got %d", len(m.Filters()))
+	}
+	if m.IsApplied() {
+		t.Error("should not be applied yet — filter was just added")
+	}
+
+	// Second Enter in the empty column field should apply the modal.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.IsApplied() {
+		t.Error("expected IsApplied() after Enter with empty column and no filter selected")
+	}
+}
+
 func TestFilterModal_CancelViaEsc(t *testing.T) {
 	m := newModal(nil)
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
