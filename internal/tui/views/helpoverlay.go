@@ -67,9 +67,10 @@ func (v *HelpOverlayView) View() string {
 		{
 			title: "Layout",
 			bindings: []key.Binding{
-				v.keys.SwitchFocus, v.keys.Pane1,
-				v.keys.Pane2, v.keys.Pane3,
-				v.keys.Maximize, v.keys.Goto,
+				v.keys.SwitchFocus, v.keys.SwitchFocusBack,
+				v.keys.Pane1, v.keys.Pane2,
+				v.keys.Pane3, v.keys.Maximize,
+				v.keys.Goto,
 			},
 		},
 		{

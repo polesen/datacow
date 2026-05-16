@@ -659,6 +659,43 @@ func TestApp_GotoOverlay_OpensWithCtrlP(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
 
+func TestApp_ShiftTab_ReverseFocus(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "1 Tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Switch to the row browser (pane 2) and wait for a render to confirm it.
+	// pane 2 not ready → status bar shows ShortHelp which includes "query filter" (not in TableListHelp).
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "query filter")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Shift+Tab should cycle focus backward: row browser → table list (pane 1).
+	// TableListHelp shows "i  table info" which does not appear in ShortHelp.
+	tm.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "table info")
+	}, teatest.WithDuration(5*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
 func TestApp_CellViewer_OpensFromRowBrowser(t *testing.T) {
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	if dsn == "" {
