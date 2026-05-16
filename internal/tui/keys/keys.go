@@ -17,6 +17,7 @@ type Map struct {
 	QueryLog        key.Binding
 	Maximize        key.Binding
 	SwitchFocus     key.Binding
+	SwitchFocusBack key.Binding
 	Pane1           key.Binding
 	Pane2           key.Binding
 	Pane3           key.Binding
@@ -84,6 +85,10 @@ func Default() Map {
 		SwitchFocus: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "next pane"),
+		),
+		SwitchFocusBack: key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("shift+tab", "prev pane"),
 		),
 		Pane1: key.NewBinding(
 			key.WithKeys("1"),
@@ -163,7 +168,7 @@ func (m Map) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{m.Up, m.Down, m.Left, m.Right, m.Enter, m.Back, m.NextPage, m.PrevPage},
 		{m.QueryFilter, m.LocalSearch, m.QuickFilterCell, m.NextMatch, m.PrevMatch, m.Sort, m.Export, m.ViewCell},
-		{m.SwitchFocus, m.Pane1, m.Pane2, m.Pane3, m.Maximize, m.Goto},
+		{m.SwitchFocus, m.SwitchFocusBack, m.Pane1, m.Pane2, m.Pane3, m.Maximize, m.Goto},
 		{m.QueryLog, m.Refresh, m.TableInfo, m.Help, m.Quit},
 	}
 }

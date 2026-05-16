@@ -500,6 +500,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			if key.Matches(msg, a.keys.SwitchFocusBack) {
+				if !a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey() {
+					a.focus = focus((int(a.focus) + 2) % 3)
+					return a, nil
+				}
+			}
+
 			// Right on a collapsed, expandable table-list row expands the tree
 			// instead of drilling; Right on an already-expanded row (or Enter)
 			// drills into the row browser.
