@@ -9,6 +9,7 @@ type Map struct {
 	Help            key.Binding
 	QueryFilter     key.Binding
 	LocalSearch     key.Binding
+	TableListFilter key.Binding
 	QuickFilterCell key.Binding
 	NextMatch       key.Binding
 	PrevMatch       key.Binding
@@ -53,6 +54,10 @@ func Default() Map {
 		LocalSearch: key.NewBinding(
 			key.WithKeys("/"),
 			key.WithHelp("/", "local search"),
+		),
+		TableListFilter: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "filter tables"),
 		),
 		QuickFilterCell: key.NewBinding(
 			key.WithKeys("="),
@@ -160,7 +165,7 @@ func (m Map) ShortHelp() []key.Binding {
 
 // TableListHelp returns bindings shown in the status bar when the table list is focused.
 func (m Map) TableListHelp() []key.Binding {
-	return []key.Binding{m.Quit, m.Up, m.Down, m.Enter, m.TableInfo, m.SwitchFocus}
+	return []key.Binding{m.Quit, m.Up, m.Down, m.Enter, m.TableListFilter, m.TableInfo, m.SwitchFocus}
 }
 
 // FullHelp returns all bindings grouped for a full help overlay.
@@ -169,6 +174,6 @@ func (m Map) FullHelp() [][]key.Binding {
 		{m.Up, m.Down, m.Left, m.Right, m.Enter, m.Back, m.NextPage, m.PrevPage},
 		{m.QueryFilter, m.LocalSearch, m.QuickFilterCell, m.NextMatch, m.PrevMatch, m.Sort, m.Export, m.ViewCell},
 		{m.SwitchFocus, m.SwitchFocusBack, m.Pane1, m.Pane2, m.Pane3, m.Maximize, m.Goto},
-		{m.QueryLog, m.Refresh, m.TableInfo, m.Help, m.Quit},
+		{m.TableListFilter, m.QueryLog, m.Refresh, m.TableInfo, m.Help, m.Quit},
 	}
 }

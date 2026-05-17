@@ -8,11 +8,14 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
 	"github.com/polesen/datacow/internal/core/dataset"
 	"github.com/polesen/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/schema"
 	"github.com/polesen/datacow/internal/tui/keys"
 	"github.com/polesen/datacow/internal/tui/style"
 )
@@ -66,32 +69,49 @@ type treeNode struct {
 	indexes    []db.Index
 }
 
+// filterMatch tracks how a dataset matched the current filter query.
+type filterMatch struct {
+	byName bool // matched dataset name
+	bySub  bool // matched a column, FK target, or index name from the schema cache
+}
+
 type TableListModel struct {
-	datasets     []dataset.Dataset
-	tree         []treeNode
-	cursor       int
-	scrollOffset int // in visible-line space (not dataset-index space)
-	spinner      spinner.Model
-	loading      bool
-	err          error
-	keys         keys.Map
-	width        int
-	height       int
-	resolver     *dataset.Resolver
-	executor     *dataset.Executor
-	client       db.Client
+	datasets        []dataset.Dataset
+	tree            []treeNode
+	cursor          int
+	scrollOffset    int // in visible-line space (not dataset-index space)
+	spinner         spinner.Model
+	loading         bool
+	err             error
+	keys            keys.Map
+	width           int
+	height          int
+	resolver        *dataset.Resolver
+	executor        *dataset.Executor
+	client          db.Client
+	schemaCache     *schema.Cache
+	filterInputOpen bool
+	filterQuery     string
+	filterInput     textinput.Model
+	savedCursorName string // cursor name saved when filter first opened, restored on Esc
 }
 
 // NewTableListModel creates a TableListModel in the initial loading state.
-// resolver, executor, and client may be nil for testing.
-func NewTableListModel(k keys.Map, resolver *dataset.Resolver, executor *dataset.Executor, client db.Client) TableListModel {
+// resolver, executor, client, and cache may be nil for testing.
+func NewTableListModel(k keys.Map, resolver *dataset.Resolver, executor *dataset.Executor, client db.Client, cache *schema.Cache) TableListModel {
+	ti := textinput.New()
+	ti.Placeholder = "filter tables…"
+	ti.Prompt = "/"
+	ti.CharLimit = 100
 	return TableListModel{
-		spinner:  newSpinner(),
-		loading:  true,
-		keys:     k,
-		resolver: resolver,
-		executor: executor,
-		client:   client,
+		spinner:     newSpinner(),
+		loading:     true,
+		keys:        k,
+		resolver:    resolver,
+		executor:    executor,
+		client:      client,
+		schemaCache: cache,
+		filterInput: ti,
 	}
 }
 
@@ -155,6 +175,7 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.filterInput.Width = max(1, m.width-2) // -2 for the "/" prompt
 		m = m.ensureCursorVisible()
 		return m, nil
 
@@ -205,24 +226,101 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.loading || m.err != nil || len(m.datasets) == 0 {
+		if m.loading || m.err != nil {
+			return m, nil
+		}
+
+		// When filter input is open, intercept filter-specific keys and route the rest to textinput.
+		if m.filterInputOpen {
+			switch {
+			case key.Matches(msg, m.keys.Back):
+				m = m.clearFilter()
+				return m, nil
+			case msg.Type == tea.KeyEnter:
+				m.filterInputOpen = false
+				m.filterInput.Blur()
+				return m, nil
+			case key.Matches(msg, m.keys.Up):
+				visible := m.visibleDatasetIndices()
+				for j := len(visible) - 1; j >= 0; j-- {
+					if visible[j] < m.cursor {
+						m.cursor = visible[j]
+						m = m.ensureCursorVisible()
+						break
+					}
+				}
+				return m, nil
+			case key.Matches(msg, m.keys.Down):
+				visible := m.visibleDatasetIndices()
+				for _, i := range visible {
+					if i > m.cursor {
+						m.cursor = i
+						m = m.ensureCursorVisible()
+						break
+					}
+				}
+				return m, nil
+			default:
+				var inputCmd tea.Cmd
+				m.filterInput, inputCmd = m.filterInput.Update(msg)
+				newQuery := m.filterInput.Value()
+				if newQuery != m.filterQuery {
+					m.filterQuery = newQuery
+					var filterCmd tea.Cmd
+					m, filterCmd = m.applyFilter()
+					return m, tea.Batch(inputCmd, filterCmd)
+				}
+				return m, inputCmd
+			}
+		}
+
+		// Normal mode (input not open).
+		if len(m.datasets) == 0 {
 			return m, nil
 		}
 		switch {
+		case key.Matches(msg, m.keys.TableListFilter):
+			if m.filterQuery == "" && m.cursor >= 0 && m.cursor < len(m.datasets) {
+				m.savedCursorName = m.datasets[m.cursor].Name
+			}
+			m.filterInput.SetValue(m.filterQuery)
+			m.filterInput.CursorEnd()
+			m.filterInputOpen = true
+			cmd = m.filterInput.Focus()
+			return m, cmd
+
+		case key.Matches(msg, m.keys.Back):
+			if m.filterQuery != "" {
+				m = m.clearFilter()
+				return m, nil
+			}
+			// No filter active — fall through; app.go handles remaining Esc cases.
+
 		case key.Matches(msg, m.keys.Up):
-			if m.cursor > 0 {
-				m.cursor--
-				m = m.ensureCursorVisible()
+			visible := m.visibleDatasetIndices()
+			for j := len(visible) - 1; j >= 0; j-- {
+				if visible[j] < m.cursor {
+					m.cursor = visible[j]
+					m = m.ensureCursorVisible()
+					break
+				}
 			}
+
 		case key.Matches(msg, m.keys.Down):
-			if m.cursor < len(m.datasets)-1 {
-				m.cursor++
-				m = m.ensureCursorVisible()
+			visible := m.visibleDatasetIndices()
+			for _, i := range visible {
+				if i > m.cursor {
+					m.cursor = i
+					m = m.ensureCursorVisible()
+					break
+				}
 			}
+
 		case key.Matches(msg, m.keys.Right):
 			if m.FocusedExpandable() && !m.FocusedExpanded() {
 				return m.expandFocused()
 			}
+
 		case key.Matches(msg, m.keys.Left):
 			if m.FocusedExpanded() {
 				m.tree[m.cursor].expanded = false
@@ -234,6 +332,169 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 
 	return m, nil
 }
+
+// ---- Filter methods ----
+
+// FilterActive reports whether a filter query is currently set (input open or held).
+func (m TableListModel) FilterActive() bool { return m.filterQuery != "" }
+
+// FilterInputActive reports whether the filter text input is currently focused.
+func (m TableListModel) FilterInputActive() bool { return m.filterInputOpen }
+
+// BlocksGlobalKeys reports whether the filter input should block global key shortcuts.
+func (m TableListModel) BlocksGlobalKeys() bool { return m.filterInputOpen }
+
+// FilterStatus returns a status bar string describing the active filter, or "".
+func (m TableListModel) FilterStatus() string {
+	if m.filterQuery == "" {
+		return ""
+	}
+	matches := m.computeFilter()
+	return fmt.Sprintf("filter: %q  %d/%d", m.filterQuery, len(matches), len(m.datasets))
+}
+
+// ClearFilter resets any held filter and closes the input. Safe to call from app.go.
+func (m TableListModel) ClearFilter() TableListModel { return m.clearFilter() }
+
+// OnCacheReady re-applies the filter now that the schema cache has data.
+// Should be called from app.go when schemaCacheReadyMsg arrives.
+func (m TableListModel) OnCacheReady() (TableListModel, tea.Cmd) {
+	if m.filterQuery == "" {
+		return m, nil
+	}
+	return m.applyFilter()
+}
+
+// computeFilter returns the set of dataset indices that match the current filter query,
+// along with how they matched. Returns nil when filterQuery is empty.
+func (m TableListModel) computeFilter() map[int]filterMatch {
+	if m.filterQuery == "" {
+		return nil
+	}
+	q := strings.ToLower(m.filterQuery)
+
+	var tableByName map[string]*schema.Table
+	cacheReady := m.schemaCache != nil && m.schemaCache.Ready()
+	if cacheReady {
+		tables := m.schemaCache.Tables()
+		tableByName = make(map[string]*schema.Table, len(tables))
+		for i := range tables {
+			tableByName[tables[i].Name] = &tables[i]
+		}
+	}
+
+	result := make(map[int]filterMatch, len(m.datasets))
+	for i, ds := range m.datasets {
+		var fm filterMatch
+		if strings.Contains(strings.ToLower(ds.Name), q) {
+			fm.byName = true
+		}
+		// YAML SQL datasets have no underlying table schema to inspect.
+		if cacheReady && ds.Kind != dataset.KindDataset && ds.Table != "" {
+			if t, ok := tableByName[ds.Table]; ok {
+				for _, col := range t.Columns {
+					if strings.Contains(strings.ToLower(col.Name), q) {
+						fm.bySub = true
+						break
+					}
+				}
+				if !fm.bySub {
+					for _, fk := range t.ForeignKeys {
+						if strings.Contains(strings.ToLower(fk.ReferencedTable), q) {
+							fm.bySub = true
+							break
+						}
+					}
+				}
+				if !fm.bySub {
+					for _, ix := range t.Indexes {
+						if strings.Contains(strings.ToLower(ix.Name), q) {
+							fm.bySub = true
+							break
+						}
+					}
+				}
+			}
+		}
+		if fm.byName || fm.bySub {
+			result[i] = fm
+		}
+	}
+	return result
+}
+
+// applyFilter re-computes the filter and snaps the cursor if the current row is
+// no longer visible. Sub-matched datasets are shown but not auto-expanded — the
+// user expands them manually to see which sub-item caused the match.
+func (m TableListModel) applyFilter() (TableListModel, tea.Cmd) {
+	if m.filterQuery == "" {
+		return m, nil
+	}
+	matches := m.computeFilter()
+	m = m.snapCursorToFilter(matches)
+	return m, nil
+}
+
+// snapCursorToFilter moves the cursor to the first visible dataset if the current one
+// is no longer in the filtered set.
+func (m TableListModel) snapCursorToFilter(matches map[int]filterMatch) TableListModel {
+	if matches == nil {
+		return m
+	}
+	if _, ok := matches[m.cursor]; ok {
+		return m
+	}
+	for i := range m.datasets {
+		if _, ok := matches[i]; ok {
+			m.cursor = i
+			m = m.ensureCursorVisible()
+			return m
+		}
+	}
+	m.cursor = len(m.datasets) // past end — empty result
+	return m
+}
+
+// clearFilter resets all filter state and restores the saved cursor position.
+func (m TableListModel) clearFilter() TableListModel {
+	m.filterQuery = ""
+	m.filterInputOpen = false
+	m.filterInput.SetValue("")
+	m.filterInput.Blur()
+	if m.savedCursorName != "" {
+		for i, ds := range m.datasets {
+			if ds.Name == m.savedCursorName {
+				m.cursor = i
+				break
+			}
+		}
+		m.savedCursorName = ""
+	}
+	m = m.ensureCursorVisible()
+	return m
+}
+
+// visibleDatasetIndices returns the ordered list of dataset indices that are visible
+// under the current filter (or all indices when no filter is active).
+func (m TableListModel) visibleDatasetIndices() []int {
+	if m.filterQuery == "" {
+		indices := make([]int, len(m.datasets))
+		for i := range indices {
+			indices[i] = i
+		}
+		return indices
+	}
+	matches := m.computeFilter()
+	result := make([]int, 0, len(matches))
+	for i := range m.datasets {
+		if _, ok := matches[i]; ok {
+			result = append(result, i)
+		}
+	}
+	return result
+}
+
+// ---- Tree / expansion ----
 
 // FocusedExpandable reports whether the currently-focused row can be expanded
 // (i.e. is a table or view — not a YAML SQL dataset).
@@ -291,6 +552,8 @@ func (m TableListModel) anyLoading() bool {
 	return false
 }
 
+// ---- Dataset accessors ----
+
 func (m TableListModel) SelectedDataset() *dataset.Dataset {
 	if len(m.datasets) == 0 || m.cursor >= len(m.datasets) {
 		return nil
@@ -317,15 +580,21 @@ func (m TableListModel) SelectByName(name string) (TableListModel, bool) {
 	return m, false
 }
 
+// ---- Line building ----
+
 // visibleLine describes one rendered line in the list.
 type visibleLine struct {
-	datasetIdx int  // header row for this dataset
-	isHeader   bool // true for the dataset row; false for expanded sub-rows
-	sub        string
+	datasetIdx  int
+	isHeader    bool // true for the dataset header row
+	sub         string
+	placeholder bool // "no match" placeholder line
 }
 
 // buildLines flattens datasets + tree into a sequence of rendered lines.
 func (m TableListModel) buildLines() []visibleLine {
+	if m.filterQuery != "" {
+		return m.buildFilteredLines()
+	}
 	out := make([]visibleLine, 0, len(m.datasets))
 	for i, ds := range m.datasets {
 		out = append(out, visibleLine{datasetIdx: i, isHeader: true})
@@ -334,6 +603,26 @@ func (m TableListModel) buildLines() []visibleLine {
 		}
 		for _, ln := range m.subLines(i, ds) {
 			out = append(out, visibleLine{datasetIdx: i, sub: ln})
+		}
+	}
+	return out
+}
+
+func (m TableListModel) buildFilteredLines() []visibleLine {
+	matches := m.computeFilter()
+	if len(matches) == 0 {
+		return []visibleLine{{datasetIdx: -1, isHeader: true, placeholder: true}}
+	}
+	out := make([]visibleLine, 0)
+	for i, ds := range m.datasets {
+		if _, ok := matches[i]; !ok {
+			continue
+		}
+		out = append(out, visibleLine{datasetIdx: i, isHeader: true})
+		if i < len(m.tree) && m.tree[i].expanded {
+			for _, ln := range m.subLines(i, ds) {
+				out = append(out, visibleLine{datasetIdx: i, sub: ln})
+			}
 		}
 	}
 	return out
@@ -406,7 +695,6 @@ func (m TableListModel) ensureCursorVisible() TableListModel {
 		return m
 	}
 	lines := m.buildLines()
-	// Find the line index of the cursor's header row.
 	cursorLine := -1
 	for i, ln := range lines {
 		if ln.isHeader && ln.datasetIdx == m.cursor {
@@ -428,29 +716,55 @@ func (m TableListModel) ensureCursorVisible() TableListModel {
 	return m
 }
 
+// ---- Rendering ----
+
 func (m TableListModel) View() string {
 	if m.width == 0 {
 		return ""
 	}
 
+	// Build filter footer (1 line when input is open).
+	var footer string
+	listHeight := m.height
+	if m.filterInputOpen {
+		listHeight = max(1, m.height-1)
+		hint := ""
+		if m.schemaCache == nil || !m.schemaCache.Ready() {
+			hint = style.Muted.Render("  (schema loading — name match only)")
+		}
+		footer = style.FilterBar.Width(m.width).Render(m.filterInput.View() + hint)
+	}
+
 	if m.loading {
-		return style.Content.Width(m.width).Height(m.height).Render(
+		content := style.Content.Width(m.width).Height(listHeight).Render(
 			m.spinner.View() + " Connecting...",
 		)
+		if footer != "" {
+			return content + "\n" + footer
+		}
+		return content
 	}
 
 	if m.err != nil {
-		return style.Content.Width(m.width).Height(m.height).Render(
+		content := style.Content.Width(m.width).Height(listHeight).Render(
 			style.Error.Render("Error: " + m.err.Error()),
 		)
+		if footer != "" {
+			return content + "\n" + footer
+		}
+		return content
 	}
 
 	if len(m.datasets) == 0 {
-		return style.Content.Width(m.width).Height(m.height).Render("No tables found.")
+		content := style.Content.Width(m.width).Height(listHeight).Render("No tables found.")
+		if footer != "" {
+			return content + "\n" + footer
+		}
+		return content
 	}
 
 	lines := m.buildLines()
-	maxVisible := m.height
+	maxVisible := listHeight
 	if maxVisible <= 0 {
 		maxVisible = len(lines)
 	}
@@ -460,17 +774,24 @@ func (m TableListModel) View() string {
 	rendered := make([]string, 0, end-m.scrollOffset)
 	for i := m.scrollOffset; i < end; i++ {
 		ln := lines[i]
-		if ln.isHeader {
+		switch {
+		case ln.placeholder:
+			msg := fmt.Sprintf("No tables match %q", m.filterQuery)
+			rendered = append(rendered, style.RowNormal.Width(m.width).Render(msg))
+		case ln.isHeader:
 			rendered = append(rendered, m.renderHeaderRow(ln.datasetIdx))
-		} else {
-			sub := runewidth.Truncate(ln.sub, m.width, "")
-			rendered = append(rendered, style.RowNormal.Width(m.width).Render(sub))
+		default:
+			rendered = append(rendered, m.renderSubRow(ln.sub))
 		}
 	}
 
-	return style.Content.Width(m.width).Height(m.height).Render(
+	content := style.Content.Width(m.width).Height(listHeight).Render(
 		strings.Join(rendered, "\n"),
 	)
+	if footer != "" {
+		return content + "\n" + footer
+	}
+	return content
 }
 
 func (m TableListModel) renderHeaderRow(i int) string {
@@ -500,6 +821,29 @@ func (m TableListModel) renderHeaderRow(i int) string {
 		}
 	}
 
+	// Non-selected rows with an active filter get substring highlighting.
+	if !selected && m.filterQuery != "" {
+		var namePart string
+		if badge != "" {
+			availNameW := max(nameWidth-badgeW, 1)
+			namePart = highlightSubstrRunes(name, m.filterQuery, style.SearchHighlight, availNameW)
+			label := " " + style.QueryLabel.Render(badge)
+			line := caret + namePart + label
+			w := lipgloss.Width(line)
+			if w < m.width {
+				line += strings.Repeat(" ", m.width-w)
+			}
+			return line
+		}
+		namePart = highlightSubstrRunes(name, m.filterQuery, style.SearchHighlight, nameWidth)
+		line := caret + namePart
+		w := lipgloss.Width(line)
+		if w < m.width {
+			line += strings.Repeat(" ", m.width-w)
+		}
+		return line
+	}
+
 	var line string
 	if badge != "" {
 		availNameW := max(nameWidth-badgeW, 1)
@@ -516,6 +860,61 @@ func (m TableListModel) renderHeaderRow(i int) string {
 		return style.RowSelected.Width(m.width).Render(line)
 	}
 	return style.RowNormal.Width(m.width).Render(line)
+}
+
+// renderSubRow renders one expanded sub-row, with substring highlighting when a filter is active.
+func (m TableListModel) renderSubRow(sub string) string {
+	if m.filterQuery != "" {
+		highlighted := highlightSubstrRunes(sub, m.filterQuery, style.SearchHighlight, m.width)
+		w := lipgloss.Width(highlighted)
+		if w < m.width {
+			highlighted += strings.Repeat(" ", m.width-w)
+		}
+		return highlighted
+	}
+	sub = runewidth.Truncate(sub, m.width, "")
+	return style.RowNormal.Width(m.width).Render(sub)
+}
+
+// highlightSubstrRunes returns a string of exactly maxW visible characters with the first
+// occurrence of query (case-insensitive) highlighted using sty. Characters are rendered
+// individually to guarantee correct display-width accounting.
+func highlightSubstrRunes(text, query string, sty lipgloss.Style, maxW int) string {
+	if maxW <= 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) > maxW {
+		runes = runes[:maxW-1]
+		runes = append(runes, '…')
+	}
+
+	matchStart, matchEnd := -1, -1
+	if query != "" {
+		lowerText := strings.ToLower(string(runes))
+		lowerQ := strings.ToLower(query)
+		byteIdx := strings.Index(lowerText, lowerQ)
+		if byteIdx >= 0 {
+			matchStart = len([]rune(lowerText[:byteIdx]))
+			matchEnd = matchStart + len([]rune(query))
+			if matchEnd > len(runes) {
+				matchEnd = len(runes)
+			}
+		}
+	}
+
+	var sb strings.Builder
+	for i, r := range runes {
+		if matchStart >= 0 && i >= matchStart && i < matchEnd {
+			sb.WriteString(sty.Render(string(r)))
+		} else {
+			sb.WriteRune(r)
+		}
+	}
+	if pad := maxW - len(runes); pad > 0 {
+		sb.WriteString(strings.Repeat(" ", pad))
+	}
+	return sb.String()
 }
 
 func datasetKindBadge(k dataset.Kind) string {
@@ -548,4 +947,3 @@ func formatIndex(ix db.Index) string {
 func formatFK(fk db.ForeignKey) string {
 	return fmt.Sprintf("%s → %s.%s", fk.Column, fk.ReferencedTable, fk.ReferencedColumn)
 }
-

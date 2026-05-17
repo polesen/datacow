@@ -5,15 +5,17 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/polesen/datacow/internal/core/dataset"
 	"github.com/polesen/datacow/internal/core/db"
+	"github.com/polesen/datacow/internal/core/schema"
 	"github.com/polesen/datacow/internal/tui/keys"
 	"github.com/polesen/datacow/internal/tui/views"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestTableListModel_StartsLoading(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	if !m.IsLoading() {
 		t.Error("expected loading state initially")
 	}
@@ -23,7 +25,7 @@ func TestTableListModel_StartsLoading(t *testing.T) {
 }
 
 func TestTableListModel_TablesLoaded(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users"},
 		{Name: "posts", Table: "posts"},
@@ -40,7 +42,7 @@ func TestTableListModel_TablesLoaded(t *testing.T) {
 }
 
 func TestTableListModel_Navigation(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users"},
 		{Name: "posts", Table: "posts"},
@@ -82,7 +84,7 @@ func TestTableListModel_Navigation(t *testing.T) {
 }
 
 func TestTableListModel_NavigationBlockedWhileLoading(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	// Still loading — navigation should have no effect
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if m.Cursor() != 0 {
@@ -91,7 +93,7 @@ func TestTableListModel_NavigationBlockedWhileLoading(t *testing.T) {
 }
 
 func TestTableListModel_Error(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(views.ErrMsg{Err: errors.New("connection refused")})
 	if m.IsLoading() {
 		t.Error("should not be loading after error")
@@ -102,7 +104,7 @@ func TestTableListModel_Error(t *testing.T) {
 }
 
 func TestTableListModel_SelectedDataset(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	if m.SelectedDataset() != nil {
 		t.Error("expected nil SelectedDataset when no tables loaded")
 	}
@@ -128,7 +130,7 @@ func TestTableListModel_SelectedDataset(t *testing.T) {
 }
 
 func TestTableListModel_View(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users"},
@@ -143,7 +145,7 @@ func TestTableListModel_View(t *testing.T) {
 // --- Schema tree tests ---------------------------------------------------
 
 func TestTableListModel_KindBadgesInView(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users", Kind: dataset.KindTable},
@@ -168,7 +170,7 @@ func TestTableListModel_KindBadgesInView(t *testing.T) {
 }
 
 func TestTableListModel_ExpandCollapseTable(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users", Kind: dataset.KindTable},
@@ -195,7 +197,7 @@ func TestTableListModel_ExpandCollapseTable(t *testing.T) {
 }
 
 func TestTableListModel_YAMLDatasetNotExpandable(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "recent", SQL: "SELECT 1", Kind: dataset.KindDataset},
@@ -211,7 +213,7 @@ func TestTableListModel_YAMLDatasetNotExpandable(t *testing.T) {
 }
 
 func TestTableListModel_ExpansionLoadedPopulatesTree(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users", Kind: dataset.KindTable},
@@ -241,7 +243,7 @@ func TestTableListModel_ExpansionLoadedPopulatesTree(t *testing.T) {
 }
 
 func TestTableListModel_IndexErrorDoesNotCrash(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users", Kind: dataset.KindTable},
@@ -255,7 +257,7 @@ func TestTableListModel_IndexErrorDoesNotCrash(t *testing.T) {
 }
 
 func TestTableListModel_ExpandedRendersSubRows(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users", Kind: dataset.KindTable},
@@ -280,7 +282,7 @@ func TestTableListModel_ExpandedRendersSubRows(t *testing.T) {
 }
 
 func TestTableListModel_SelectByName_Found(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users"},
 		{Name: "orders", Table: "orders"},
@@ -297,7 +299,7 @@ func TestTableListModel_SelectByName_Found(t *testing.T) {
 }
 
 func TestTableListModel_SelectByName_NotFound(t *testing.T) {
-	m := views.NewTableListModel(keys.Default(), nil, nil, nil)
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, nil)
 	m, _ = m.Update(views.TablesLoadedMsg([]dataset.Dataset{
 		{Name: "users", Table: "users"},
 	}))
@@ -308,5 +310,454 @@ func TestTableListModel_SelectByName_NotFound(t *testing.T) {
 	}
 	if m.Cursor() != 0 {
 		t.Errorf("cursor should remain 0 after failed SelectByName, got %d", m.Cursor())
+	}
+}
+
+// ---- Filter tests --------------------------------------------------------
+
+// loadedTableListModel sets up a model with tables loaded and a given size.
+func loadedTableListModel(t *testing.T, cache *schema.Cache, datasets []dataset.Dataset) views.TableListModel {
+	t.Helper()
+	m := views.NewTableListModel(keys.Default(), nil, nil, nil, cache)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	m, _ = m.Update(views.TablesLoadedMsg(datasets))
+	return m
+}
+
+func pressSlash(m views.TableListModel) (views.TableListModel, tea.Cmd) {
+	return m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+}
+
+func typeText(m views.TableListModel, text string) (views.TableListModel, tea.Cmd) {
+	var cmd tea.Cmd
+	for _, r := range text {
+		m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	return m, cmd
+}
+
+func pressEsc(m views.TableListModel) (views.TableListModel, tea.Cmd) {
+	return m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+}
+
+func pressEnter(m views.TableListModel) (views.TableListModel, tea.Cmd) {
+	return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+}
+
+func TestTableListFilter_IdleListUnchanged(t *testing.T) {
+	// Without opening the filter, the view should show all tables unmodified.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+	})
+	v := m.View()
+	if !strings.Contains(v, "users") || !strings.Contains(v, "orders") {
+		t.Errorf("idle view should show all tables, got:\n%s", v)
+	}
+	if m.FilterActive() {
+		t.Error("filter should not be active in idle state")
+	}
+	if m.FilterInputActive() {
+		t.Error("filter input should not be active in idle state")
+	}
+}
+
+func TestTableListFilter_SlashOpensInput(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	if !m.FilterInputActive() {
+		t.Error("/ should open the filter input")
+	}
+	v := m.View()
+	// The filter bar (with "/" prompt) should be visible.
+	if !strings.Contains(v, "/") {
+		t.Errorf("view should contain filter prompt after /, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_TypingNarrowsList(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+		{Name: "products", Table: "products", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "ord")
+	v := m.View()
+	if strings.Contains(v, "users") {
+		t.Errorf("users should be hidden by filter, got:\n%s", v)
+	}
+	if strings.Contains(v, "products") {
+		t.Errorf("products should be hidden by filter, got:\n%s", v)
+	}
+	if !strings.Contains(v, "orders") {
+		t.Errorf("orders should be visible after filter 'ord', got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_CaseInsensitive(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "Users", Table: "Users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "users")
+	v := m.View()
+	if !strings.Contains(v, "Users") {
+		t.Errorf("filter should be case-insensitive; Users should match 'users', got:\n%s", v)
+	}
+	if strings.Contains(v, "orders") {
+		t.Errorf("orders should not match 'users', got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_NoMatchPlaceholder(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "zzzzz")
+	v := m.View()
+	if !strings.Contains(v, `No tables match`) {
+		t.Errorf("should show no-match placeholder, got:\n%s", v)
+	}
+	if strings.Contains(v, "users") {
+		t.Errorf("hidden tables should not appear, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_EscClearsFilterAndRestoresCursor(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+		{Name: "products", Table: "products", Kind: dataset.KindTable},
+	})
+	// Move to orders (index 1).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.Cursor() != 1 {
+		t.Fatalf("expected cursor at 1, got %d", m.Cursor())
+	}
+	// Open filter and type something.
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "pro") // only products matches
+	// Esc should clear and restore cursor to orders.
+	m, _ = pressEsc(m)
+	if m.FilterActive() {
+		t.Error("filter should be cleared after Esc")
+	}
+	if m.FilterInputActive() {
+		t.Error("filter input should be closed after Esc")
+	}
+	v := m.View()
+	if !strings.Contains(v, "users") || !strings.Contains(v, "orders") || !strings.Contains(v, "products") {
+		t.Errorf("all tables should be visible after Esc, got:\n%s", v)
+	}
+	if m.Cursor() != 1 {
+		t.Errorf("cursor should be restored to orders (1) after Esc, got %d", m.Cursor())
+	}
+}
+
+func TestTableListFilter_EnterKeepsFilter(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "ord")
+	m, _ = pressEnter(m)
+	if !m.FilterActive() {
+		t.Error("filter should remain held after Enter")
+	}
+	if m.FilterInputActive() {
+		t.Error("filter input should be closed after Enter")
+	}
+	v := m.View()
+	if strings.Contains(v, "users") {
+		t.Errorf("users should still be hidden after Enter, got:\n%s", v)
+	}
+	if !strings.Contains(v, "orders") {
+		t.Errorf("orders should still be visible after Enter, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_FilterStatus(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+		{Name: "products", Table: "products", Kind: dataset.KindTable},
+	})
+	if m.FilterStatus() != "" {
+		t.Error("FilterStatus should be empty when no filter active")
+	}
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "ord")
+	status := m.FilterStatus()
+	if !strings.Contains(status, "ord") {
+		t.Errorf("FilterStatus should contain query 'ord', got: %q", status)
+	}
+	if !strings.Contains(status, "1/3") {
+		t.Errorf("FilterStatus should contain match count '1/3', got: %q", status)
+	}
+}
+
+func TestTableListFilter_CursorSnapsWhenCurrentRowDropsOut(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "alpha", Table: "alpha", Kind: dataset.KindTable},
+		{Name: "beta", Table: "beta", Kind: dataset.KindTable},
+		{Name: "gamma", Table: "gamma", Kind: dataset.KindTable},
+	})
+	// Cursor at gamma (index 2).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.Cursor() != 2 {
+		t.Fatalf("expected cursor at 2, got %d", m.Cursor())
+	}
+	// Filter to only alpha — gamma is no longer visible.
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "alpha")
+	if m.Cursor() != 0 {
+		t.Errorf("cursor should snap to alpha (0), got %d", m.Cursor())
+	}
+}
+
+func TestTableListFilter_CacheNotReadyHint(t *testing.T) {
+	// When schemaCache is nil (not ready), the filter input footer shows the hint.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	v := m.View()
+	if !strings.Contains(v, "schema loading") {
+		t.Errorf("view should show 'schema loading' hint when cache not ready, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_CacheReadyNoHint(t *testing.T) {
+	// When cache is ready, no hint should appear.
+	tables := []schema.Table{
+		{Name: "users", Kind: db.KindTable, Columns: []db.Column{{Name: "id"}}},
+	}
+	datasets := []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	}
+	cache := schema.NewCacheWithData(tables, datasets)
+	m := loadedTableListModel(t, cache, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	v := m.View()
+	if strings.Contains(v, "schema loading") {
+		t.Errorf("view should NOT show 'schema loading' hint when cache is ready, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_SubMatchVisible(t *testing.T) {
+	// A dataset that matches only via a column name should be visible in the filtered list
+	// but must remain collapsed (the user expands manually to see which sub-item matched).
+	tables := []schema.Table{
+		{
+			Name: "users",
+			Kind: db.KindTable,
+			Columns: []db.Column{
+				{Name: "email_address"},
+				{Name: "id"},
+			},
+		},
+		{
+			Name: "orders",
+			Kind: db.KindTable,
+			Columns: []db.Column{
+				{Name: "total"},
+			},
+		},
+	}
+	datasets := []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+	}
+	cache := schema.NewCacheWithData(tables, datasets)
+	m := loadedTableListModel(t, cache, datasets)
+
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "email")
+
+	v := m.View()
+	// orders has no 'email' column — must be hidden.
+	if strings.Contains(v, "orders") {
+		t.Errorf("orders should be hidden (no column 'email'), got:\n%s", v)
+	}
+	// users matches via column — must be visible.
+	if !strings.Contains(v, "users") {
+		t.Errorf("users should be visible (column email_address matches), got:\n%s", v)
+	}
+	// Must remain collapsed — "Columns" header only appears when expanded.
+	if strings.Contains(v, "Columns") {
+		t.Errorf("sub-matched dataset should remain collapsed, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_NameMatchStaysCollapsed(t *testing.T) {
+	// A dataset that matches by name should remain collapsed (not auto-expanded).
+	tables := []schema.Table{
+		{Name: "users", Kind: db.KindTable, Columns: []db.Column{{Name: "id"}}},
+	}
+	datasets := []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	}
+	cache := schema.NewCacheWithData(tables, datasets)
+	m := loadedTableListModel(t, cache, datasets)
+
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "users")
+
+	v := m.View()
+	if !strings.Contains(v, "users") {
+		t.Errorf("users should be visible (name match), got:\n%s", v)
+	}
+	// Should NOT show expanded tree (Columns, Indexes, Foreign Keys).
+	if strings.Contains(v, "Columns") {
+		t.Errorf("name-match dataset should remain collapsed, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_NavigationInFilteredList(t *testing.T) {
+	// "apple" and "apricot" both contain "p"; "cherry" does not.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "apple", Table: "apple", Kind: dataset.KindTable},
+		{Name: "cherry", Table: "cherry", Kind: dataset.KindTable},
+		{Name: "apricot", Table: "apricot", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "p") // matches apple (0) and apricot (2), skips cherry (1)
+	m, _ = pressEnter(m)    // hold filter, close input
+
+	// Cursor should be on first visible (apple at index 0).
+	if m.Cursor() != 0 {
+		t.Errorf("cursor should be at apple (0), got %d", m.Cursor())
+	}
+	// Down should move to apricot (index 2), skipping cherry (index 1, hidden).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.Cursor() != 2 {
+		t.Errorf("Down should skip to apricot (2), got %d", m.Cursor())
+	}
+	// Down again should not move past apricot.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.Cursor() != 2 {
+		t.Errorf("cursor should stay at apricot (2) at end, got %d", m.Cursor())
+	}
+	// Up should go back to apple (0).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.Cursor() != 0 {
+		t.Errorf("Up should move to apple (0), got %d", m.Cursor())
+	}
+}
+
+func TestTableListFilter_ReopenPrefilled(t *testing.T) {
+	// After Enter (held filter), pressing / again should pre-fill the input.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "ord")
+	m, _ = pressEnter(m) // hold filter, close input
+
+	// Re-open: should be pre-filled.
+	m, _ = pressSlash(m)
+	if !m.FilterInputActive() {
+		t.Error("second / should re-open filter input")
+	}
+	v := m.View()
+	if !strings.Contains(v, "ord") {
+		t.Errorf("re-opened filter input should be pre-filled with 'ord', got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_SubMatchDoesNotAutoExpand(t *testing.T) {
+	// Datasets visible only because a column name matched should NOT be auto-expanded.
+	// Typing a short query that hits many column names must not burst open every tree.
+	tables := []schema.Table{
+		{Name: "users", Kind: db.KindTable, Columns: []db.Column{{Name: "email_address"}, {Name: "id"}}},
+		{Name: "orders", Kind: db.KindTable, Columns: []db.Column{{Name: "customer_email"}}},
+	}
+	datasets := []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+	}
+	cache := schema.NewCacheWithData(tables, datasets)
+	m := loadedTableListModel(t, cache, datasets)
+
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "email") // matches via column sub-match only, not dataset name
+
+	v := m.View()
+	if !strings.Contains(v, "users") {
+		t.Errorf("users should be visible (column sub-match), got:\n%s", v)
+	}
+	if !strings.Contains(v, "orders") {
+		t.Errorf("orders should be visible (column sub-match), got:\n%s", v)
+	}
+	// Tree must stay collapsed — "Columns" header only appears when expanded.
+	if strings.Contains(v, "Columns") {
+		t.Errorf("sub-matched datasets should NOT be auto-expanded, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_NavigationWhileInputOpen(t *testing.T) {
+	// Up/Down arrow keys should navigate the filtered list even while the filter
+	// input is still open, without requiring the user to press Enter first.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "apple", Table: "apple", Kind: dataset.KindTable},
+		{Name: "cherry", Table: "cherry", Kind: dataset.KindTable},
+		{Name: "apricot", Table: "apricot", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "p") // matches apple (0) and apricot (2), not cherry (1)
+
+	if !m.FilterInputActive() {
+		t.Fatal("filter input should still be open")
+	}
+	if m.Cursor() != 0 {
+		t.Fatalf("cursor should be at apple (0) after filter, got %d", m.Cursor())
+	}
+
+	// Down while input open should jump to apricot (2), skipping hidden cherry (1).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.Cursor() != 2 {
+		t.Errorf("Down while filter open should move to apricot (2), got %d", m.Cursor())
+	}
+	if !m.FilterInputActive() {
+		t.Error("filter input should remain open after Down navigation")
+	}
+
+	// Up while input open should return to apple (0).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.Cursor() != 0 {
+		t.Errorf("Up while filter open should return to apple (0), got %d", m.Cursor())
+	}
+	if !m.FilterInputActive() {
+		t.Error("filter input should remain open after Up navigation")
+	}
+}
+
+func TestTableListFilter_YAMLDatasetNameOnly(t *testing.T) {
+	// YAML SQL datasets (KindDataset) match on name only, not schema.
+	cache := schema.NewCacheWithData(nil, []dataset.Dataset{
+		{Name: "monthly_report", SQL: "SELECT 1", Kind: dataset.KindDataset},
+	})
+	m := loadedTableListModel(t, cache, []dataset.Dataset{
+		{Name: "monthly_report", SQL: "SELECT 1", Kind: dataset.KindDataset},
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "monthly")
+	v := m.View()
+	if !strings.Contains(v, "monthly_report") {
+		t.Errorf("YAML dataset should match on name, got:\n%s", v)
+	}
+	if strings.Contains(v, "users") {
+		t.Errorf("users should be hidden, got:\n%s", v)
 	}
 }

@@ -159,7 +159,8 @@ func (a *App) activateConnection(name string, client db.Client) tea.Cmd {
 	a.queryLogView = views.NewQueryLogView(queryLog)
 	a.executor = executor
 	a.exporter = export.NewExporter(executor)
-	a.tableList = views.NewTableListModel(a.keys, resolver, executor, lc)
+	a.schemaCache = schema.NewCache()
+	a.tableList = views.NewTableListModel(a.keys, resolver, executor, lc, a.schemaCache)
 	a.sqlPane = views.NewSQLPaneModel(a.keys, queryLog)
 	a.rowBrowserReady = false
 	a.focus = focusTables
@@ -169,7 +170,6 @@ func (a *App) activateConnection(name string, client db.Client) tea.Cmd {
 
 	a.activeClient = lc
 	a.activeResolver = resolver
-	a.schemaCache = schema.NewCache()
 	a.gotoModel = views.NewGotoModel(a.schemaCache, a.cfg.Datasources)
 	a.cacheLoading = true
 	return a.cacheLoadCmd()
@@ -367,8 +367,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 		}
 
+		// Whether a text-input field (table-list filter, row-browser local search) is
+		// currently capturing keys. Global shortcuts must not fire while these are active.
+		inModalInput := a.screen == screenSplit &&
+			((a.focus == focusTables && a.tableList.BlocksGlobalKeys()) ||
+				(a.rowBrowserReady && a.rowBrowser.BlocksGlobalKeys()))
+
 		// ctrl+p: open goto dialog from any screen with an active connection.
-		if key.Matches(msg, a.keys.Goto) &&
+		if !inModalInput && key.Matches(msg, a.keys.Goto) &&
 			a.screen != screenDatasourcePicker &&
 			a.screen != screenGoto &&
 			a.schemaCache != nil {
@@ -382,7 +388,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// ctrl+r: trigger schema refresh when a connection is active.
-		if key.Matches(msg, a.keys.Refresh) &&
+		if !inModalInput && key.Matches(msg, a.keys.Refresh) &&
 			a.schemaCache != nil &&
 			!a.cacheLoading &&
 			a.screen != screenDatasourcePicker {
@@ -398,7 +404,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Query log overlay toggle — only available when in split view.
 		if a.screen == screenSplit || a.screen == screenQueryLog {
-			if key.Matches(msg, a.keys.QueryLog) {
+			if !inModalInput && key.Matches(msg, a.keys.QueryLog) {
 				if a.screen == screenQueryLog {
 					a.screen = a.screenBeforeOverlay
 				} else {
@@ -417,7 +423,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Help overlay toggle — only available when in split view.
 		if a.screen == screenSplit || a.screen == screenHelp {
-			if key.Matches(msg, a.keys.Help) {
+			if !inModalInput && key.Matches(msg, a.keys.Help) {
 				if a.screen == screenHelp {
 					a.screen = a.screenBeforeOverlay
 				} else {
@@ -433,7 +439,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Table info overlay — only when split view, table list focused, KindTable selected.
-		if a.screen == screenSplit && a.focus == focusTables && key.Matches(msg, a.keys.TableInfo) {
+		if a.screen == screenSplit && a.focus == focusTables && !inModalInput && key.Matches(msg, a.keys.TableInfo) {
 			if ds := a.tableList.SelectedDataset(); ds != nil && ds.Kind == dataset.KindTable {
 				a.tableInfoModel = views.NewTableInfoModel()
 				a.tableInfoModel.SetSize(a.width, a.contentHeight())
@@ -451,8 +457,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if a.screen == screenSplit {
-			inFilterInput := a.rowBrowserReady && a.rowBrowser.BlocksGlobalKeys()
-			if !inFilterInput {
+			tableListBlocksKeys := a.focus == focusTables && a.tableList.BlocksGlobalKeys()
+			if !inModalInput {
 				switch msg.String() {
 				case "1":
 					a.focus = focusTables
@@ -461,12 +467,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return a, nil
 				case "2":
+					if a.focus == focusTables {
+						a.tableList = a.tableList.ClearFilter()
+					}
 					a.focus = focusRowBrowser
 					if a.maximized {
 						a.pushMaximizedSizes()
 					}
 					return a, nil
 				case "3":
+					if a.focus == focusTables {
+						a.tableList = a.tableList.ClearFilter()
+					}
 					if a.maximized {
 						a.maximized = false
 						a.pushNormalSizes()
@@ -476,7 +488,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			if !inFilterInput && key.Matches(msg, a.keys.Maximize) {
+			if !inModalInput && key.Matches(msg, a.keys.Maximize) {
 				if a.focus == focusSQL {
 					a.screenBeforeOverlay = a.screen
 					a.screen = screenQueryLog
@@ -494,14 +506,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if key.Matches(msg, a.keys.SwitchFocus) {
-				if !a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey() {
+				if !tableListBlocksKeys &&
+					(!a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey()) {
+					if a.focus == focusTables {
+						a.tableList = a.tableList.ClearFilter()
+					}
 					a.focus = focus((int(a.focus) + 1) % 3)
 					return a, nil
 				}
 			}
 
 			if key.Matches(msg, a.keys.SwitchFocusBack) {
-				if !a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey() {
+				if !tableListBlocksKeys &&
+					(!a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey()) {
+					if a.focus == focusTables {
+						a.tableList = a.tableList.ClearFilter()
+					}
 					a.focus = focus((int(a.focus) + 2) % 3)
 					return a, nil
 				}
@@ -523,8 +543,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, cmd
 			}
 
-			if a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
+			if !inModalInput && a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 				if ds := a.tableList.SelectedDataset(); ds != nil {
+					a.tableList = a.tableList.ClearFilter()
 					a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds)
 					sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 					a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
@@ -555,17 +576,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 
-			// Esc from table list while maximized → restore split.
-			if a.focus == focusTables && key.Matches(msg, a.keys.Back) && a.maximized {
-				a.maximized = false
-				a.pushNormalSizes()
-				return a, nil
-			}
-
-			// Esc from table list in multi-datasource mode → back to picker.
-			if a.focus == focusTables && key.Matches(msg, a.keys.Back) && a.multiDatasource {
-				a.screen = screenDatasourcePicker
-				return a, nil
+			// Esc from table list while filter is active → handled by tableList.Update below.
+			// Only intercept if no filter is active.
+			if a.focus == focusTables && key.Matches(msg, a.keys.Back) && !a.tableList.FilterActive() {
+				// Esc from table list while maximized → restore split.
+				if a.maximized {
+					a.maximized = false
+					a.pushNormalSizes()
+					return a, nil
+				}
+				// Esc from table list in multi-datasource mode → back to picker.
+				if a.multiDatasource {
+					a.screen = screenDatasourcePicker
+					return a, nil
+				}
 			}
 		}
 
@@ -598,6 +622,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		if msg.Dataset != nil {
+			a.tableList = a.tableList.ClearFilter()
 			a.tableList, _ = a.tableList.SelectByName(msg.Dataset.Name)
 			a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *msg.Dataset)
 			sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
@@ -611,7 +636,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case schemaCacheReadyMsg:
 		a.cacheLoading = false
-		return a, nil
+		var cacheCmd tea.Cmd
+		a.tableList, cacheCmd = a.tableList.OnCacheReady()
+		return a, cacheCmd
 
 	case schemaCacheErrMsg:
 		a.cacheLoading = false
@@ -922,9 +949,14 @@ func (a *App) renderStatusBar() string {
 	default:
 		bindings = a.keys.ShortHelp()
 	}
-	parts := make([]string, 0, len(bindings)+2)
+	parts := make([]string, 0, len(bindings)+3)
 	if runningPart != "" {
 		parts = append(parts, runningPart)
+	}
+	if a.screen == screenSplit && a.focus == focusTables {
+		if fs := a.tableList.FilterStatus(); fs != "" {
+			parts = append(parts, style.StatusDesc.Render(fs))
+		}
 	}
 	if a.screen == screenSplit && a.maximized {
 		parts = append(parts, style.StatusKey.Render("z")+style.StatusDesc.Render(" restore"))

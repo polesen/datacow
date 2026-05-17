@@ -20,10 +20,19 @@ func TestHelpOverlayView_SectionHeadings(t *testing.T) {
 	v := views.NewHelpOverlayView(keys.Default())
 	v.SetSize(120, 40)
 	out := v.View()
-	for _, heading := range []string{"Keybindings", "Navigation", "Data", "Layout", "System"} {
+	for _, heading := range []string{"Keybindings", "Navigation", "Data", "Layout", "System", "Table List"} {
 		if !strings.Contains(out, heading) {
 			t.Errorf("help overlay missing section heading %q", heading)
 		}
+	}
+}
+
+func TestHelpOverlayView_TableListFilterVisible(t *testing.T) {
+	v := views.NewHelpOverlayView(keys.Default())
+	v.SetSize(120, 40)
+	out := v.View()
+	if !strings.Contains(out, "filter tables") {
+		t.Error("help overlay should contain 'filter tables' entry for TableListFilter")
 	}
 }
 
