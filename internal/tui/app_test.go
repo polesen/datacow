@@ -901,44 +901,44 @@ func TestAC_B10_LeavingPaneClearsFilter(t *testing.T) {
 		return strings.Contains(string(bts), "filter_ac_b10_test")
 	}, teatest.WithDuration(15*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
 
-	// Open the filter and type some text.
+	// Open the filter and type some text. Sleep to let "/" be processed before
+	// typing — the WaitFor for "filter tables" returns immediately (it was
+	// already in accumulated bytes), so we cannot rely on it as a sync point.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), "filter tables")
-	}, teatest.WithDuration(5*time.Second))
+	time.Sleep(300 * time.Millisecond)
 
 	for _, r := range "filter_ac" {
 		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	// Give the model time to process keystrokes.
+	// Hold the filter (close input) with Enter so BlocksGlobalKeys() returns
+	// false. Without this, pressing "2" is consumed by the filter input.
+	// Sleep before and after to let keystrokes settle.
 	time.Sleep(200 * time.Millisecond)
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	time.Sleep(300 * time.Millisecond)
 
 	// Press "2" — leave pane 1 (which should clear the filter).
+	// This works because the filter input is now closed (held state).
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
-	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), "2 Row Browser")
-	}, teatest.WithDuration(5*time.Second))
+	time.Sleep(300 * time.Millisecond)
 
-	// Return to pane 1 and open the filter again.
+	// Return to pane 1.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
-	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), "filter_ac_b10_test")
-	}, teatest.WithDuration(5*time.Second))
+	time.Sleep(300 * time.Millisecond)
 
+	// Open the filter and type a unique string never seen before in this test.
+	// If the filter was cleared when focus left (B10), typing "xfresh" gives
+	// filter="xfresh" and `filter: "xfresh"` appears. If the filter was NOT
+	// cleared (held "filter_ac"), typing "xfresh" produces "filter_acxfresh" —
+	// a different string. Using a novel positive assertion avoids the teatest
+	// accumulated-bytes problem (WaitFor checks ALL bytes ever written).
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	// The filter must open EMPTY (not pre-filled with "filter_ac") because it
-	// was cleared when focus left. We verify this by checking that the filter
-	// bar appears but the match-count status (which would show M/N) is absent,
-	// indicating an empty query with no filtering in effect.
+	time.Sleep(200 * time.Millisecond)
+	for _, r := range "xfresh" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		s := string(bts)
-		// "filter tables" text comes from the status bar key hints shown when
-		// the table-list is focused, which are always present; we cannot use it
-		// alone to detect the filter input. Look for the "/" prompt in the view.
-		// An empty filter has no FilterStatus, so the count indicator "1/" or
-		// "2/" will NOT appear in the status bar (only appears when filter is
-		// active with matches).
-		return strings.Contains(s, "/") && !strings.Contains(s, "1/1")
+		return strings.Contains(string(bts), `filter: "xfresh"`)
 	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
