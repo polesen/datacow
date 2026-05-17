@@ -240,6 +240,26 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 				m.filterInputOpen = false
 				m.filterInput.Blur()
 				return m, nil
+			case key.Matches(msg, m.keys.Up):
+				visible := m.visibleDatasetIndices()
+				for j := len(visible) - 1; j >= 0; j-- {
+					if visible[j] < m.cursor {
+						m.cursor = visible[j]
+						m = m.ensureCursorVisible()
+						break
+					}
+				}
+				return m, nil
+			case key.Matches(msg, m.keys.Down):
+				visible := m.visibleDatasetIndices()
+				for _, i := range visible {
+					if i > m.cursor {
+						m.cursor = i
+						m = m.ensureCursorVisible()
+						break
+					}
+				}
+				return m, nil
 			default:
 				var inputCmd tea.Cmd
 				m.filterInput, inputCmd = m.filterInput.Update(msg)
@@ -403,45 +423,16 @@ func (m TableListModel) computeFilter() map[int]filterMatch {
 	return result
 }
 
-// applyFilter re-computes the filter, triggers lazy expansion for sub-matched datasets,
-// and snaps the cursor if the current row is no longer visible.
+// applyFilter re-computes the filter and snaps the cursor if the current row is
+// no longer visible. Sub-matched datasets are shown but not auto-expanded — the
+// user expands them manually to see which sub-item caused the match.
 func (m TableListModel) applyFilter() (TableListModel, tea.Cmd) {
 	if m.filterQuery == "" {
 		return m, nil
 	}
 	matches := m.computeFilter()
-	var cmds []tea.Cmd
-	for i, ds := range m.datasets {
-		fm, ok := matches[i]
-		if !ok || !fm.bySub {
-			continue
-		}
-		if i >= len(m.tree) || m.tree[i].expanded {
-			continue
-		}
-		m.tree[i].expanded = true
-		if m.tree[i].expState == expIdle {
-			m.tree[i].expState = expLoading
-			if c := m.loadExpansionCmd(i, ds); c != nil {
-				cmds = append(cmds, c)
-			}
-		}
-		if ds.Kind == dataset.KindView {
-			if m.tree[i].indexState == indexIdle {
-				m.tree[i].indexState = indexLoaded
-			}
-		} else if m.tree[i].indexState == indexIdle {
-			m.tree[i].indexState = indexLoading
-			if c := m.loadIndexesCmd(i, ds); c != nil {
-				cmds = append(cmds, c)
-			}
-		}
-	}
 	m = m.snapCursorToFilter(matches)
-	if len(cmds) == 0 {
-		return m, nil
-	}
-	return m, tea.Batch(cmds...)
+	return m, nil
 }
 
 // snapCursorToFilter moves the cursor to the first visible dataset if the current one

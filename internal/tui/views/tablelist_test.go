@@ -553,8 +553,9 @@ func TestTableListFilter_CacheReadyNoHint(t *testing.T) {
 	}
 }
 
-func TestTableListFilter_SubMatchAutoExpands(t *testing.T) {
-	// A dataset that matches only via a column name should be auto-expanded.
+func TestTableListFilter_SubMatchVisible(t *testing.T) {
+	// A dataset that matches only via a column name should be visible in the filtered list
+	// but must remain collapsed (the user expands manually to see which sub-item matched).
 	tables := []schema.Table{
 		{
 			Name: "users",
@@ -582,19 +583,18 @@ func TestTableListFilter_SubMatchAutoExpands(t *testing.T) {
 	m, _ = pressSlash(m)
 	m, _ = typeText(m, "email")
 
-	// Users should be visible (matched via column), orders should not.
 	v := m.View()
+	// orders has no 'email' column — must be hidden.
 	if strings.Contains(v, "orders") {
 		t.Errorf("orders should be hidden (no column 'email'), got:\n%s", v)
 	}
-	// users should be visible and auto-expanded (expand shows tree nodes).
+	// users matches via column — must be visible.
 	if !strings.Contains(v, "users") {
 		t.Errorf("users should be visible (column email_address matches), got:\n%s", v)
 	}
-	// The model should have set users as expanded.
-	if !m.FocusedExpanded() {
-		// cursor should be on users (first visible).
-		t.Log("note: tree expansion triggers lazy load; tree node may still be in loading state")
+	// Must remain collapsed — "Columns" header only appears when expanded.
+	if strings.Contains(v, "Columns") {
+		t.Errorf("sub-matched dataset should remain collapsed, got:\n%s", v)
 	}
 }
 
@@ -672,6 +672,73 @@ func TestTableListFilter_ReopenPrefilled(t *testing.T) {
 	v := m.View()
 	if !strings.Contains(v, "ord") {
 		t.Errorf("re-opened filter input should be pre-filled with 'ord', got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_SubMatchDoesNotAutoExpand(t *testing.T) {
+	// Datasets visible only because a column name matched should NOT be auto-expanded.
+	// Typing a short query that hits many column names must not burst open every tree.
+	tables := []schema.Table{
+		{Name: "users", Kind: db.KindTable, Columns: []db.Column{{Name: "email_address"}, {Name: "id"}}},
+		{Name: "orders", Kind: db.KindTable, Columns: []db.Column{{Name: "customer_email"}}},
+	}
+	datasets := []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+	}
+	cache := schema.NewCacheWithData(tables, datasets)
+	m := loadedTableListModel(t, cache, datasets)
+
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "email") // matches via column sub-match only, not dataset name
+
+	v := m.View()
+	if !strings.Contains(v, "users") {
+		t.Errorf("users should be visible (column sub-match), got:\n%s", v)
+	}
+	if !strings.Contains(v, "orders") {
+		t.Errorf("orders should be visible (column sub-match), got:\n%s", v)
+	}
+	// Tree must stay collapsed — "Columns" header only appears when expanded.
+	if strings.Contains(v, "Columns") {
+		t.Errorf("sub-matched datasets should NOT be auto-expanded, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_NavigationWhileInputOpen(t *testing.T) {
+	// Up/Down arrow keys should navigate the filtered list even while the filter
+	// input is still open, without requiring the user to press Enter first.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "apple", Table: "apple", Kind: dataset.KindTable},
+		{Name: "cherry", Table: "cherry", Kind: dataset.KindTable},
+		{Name: "apricot", Table: "apricot", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "p") // matches apple (0) and apricot (2), not cherry (1)
+
+	if !m.FilterInputActive() {
+		t.Fatal("filter input should still be open")
+	}
+	if m.Cursor() != 0 {
+		t.Fatalf("cursor should be at apple (0) after filter, got %d", m.Cursor())
+	}
+
+	// Down while input open should jump to apricot (2), skipping hidden cherry (1).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.Cursor() != 2 {
+		t.Errorf("Down while filter open should move to apricot (2), got %d", m.Cursor())
+	}
+	if !m.FilterInputActive() {
+		t.Error("filter input should remain open after Down navigation")
+	}
+
+	// Up while input open should return to apple (0).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.Cursor() != 0 {
+		t.Errorf("Up while filter open should return to apple (0), got %d", m.Cursor())
+	}
+	if !m.FilterInputActive() {
+		t.Error("filter input should remain open after Up navigation")
 	}
 }
 

@@ -367,8 +367,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 		}
 
+		// Whether a text-input field (table-list filter, row-browser local search) is
+		// currently capturing keys. Global shortcuts must not fire while these are active.
+		inModalInput := a.screen == screenSplit &&
+			((a.focus == focusTables && a.tableList.BlocksGlobalKeys()) ||
+				(a.rowBrowserReady && a.rowBrowser.BlocksGlobalKeys()))
+
 		// ctrl+p: open goto dialog from any screen with an active connection.
-		if key.Matches(msg, a.keys.Goto) &&
+		if !inModalInput && key.Matches(msg, a.keys.Goto) &&
 			a.screen != screenDatasourcePicker &&
 			a.screen != screenGoto &&
 			a.schemaCache != nil {
@@ -382,7 +388,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// ctrl+r: trigger schema refresh when a connection is active.
-		if key.Matches(msg, a.keys.Refresh) &&
+		if !inModalInput && key.Matches(msg, a.keys.Refresh) &&
 			a.schemaCache != nil &&
 			!a.cacheLoading &&
 			a.screen != screenDatasourcePicker {
@@ -398,7 +404,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Query log overlay toggle — only available when in split view.
 		if a.screen == screenSplit || a.screen == screenQueryLog {
-			if key.Matches(msg, a.keys.QueryLog) {
+			if !inModalInput && key.Matches(msg, a.keys.QueryLog) {
 				if a.screen == screenQueryLog {
 					a.screen = a.screenBeforeOverlay
 				} else {
@@ -417,7 +423,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Help overlay toggle — only available when in split view.
 		if a.screen == screenSplit || a.screen == screenHelp {
-			if key.Matches(msg, a.keys.Help) {
+			if !inModalInput && key.Matches(msg, a.keys.Help) {
 				if a.screen == screenHelp {
 					a.screen = a.screenBeforeOverlay
 				} else {
@@ -433,7 +439,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Table info overlay — only when split view, table list focused, KindTable selected.
-		if a.screen == screenSplit && a.focus == focusTables && key.Matches(msg, a.keys.TableInfo) {
+		if a.screen == screenSplit && a.focus == focusTables && !inModalInput && key.Matches(msg, a.keys.TableInfo) {
 			if ds := a.tableList.SelectedDataset(); ds != nil && ds.Kind == dataset.KindTable {
 				a.tableInfoModel = views.NewTableInfoModel()
 				a.tableInfoModel.SetSize(a.width, a.contentHeight())
@@ -452,8 +458,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if a.screen == screenSplit {
 			tableListBlocksKeys := a.focus == focusTables && a.tableList.BlocksGlobalKeys()
-			inFilterInput := (a.rowBrowserReady && a.rowBrowser.BlocksGlobalKeys()) || tableListBlocksKeys
-			if !inFilterInput {
+			if !inModalInput {
 				switch msg.String() {
 				case "1":
 					a.focus = focusTables
@@ -483,7 +488,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			if !inFilterInput && key.Matches(msg, a.keys.Maximize) {
+			if !inModalInput && key.Matches(msg, a.keys.Maximize) {
 				if a.focus == focusSQL {
 					a.screenBeforeOverlay = a.screen
 					a.screen = screenQueryLog
