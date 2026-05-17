@@ -12,6 +12,7 @@ type Table struct {
 	Kind        db.TableKind
 	Columns     []db.Column
 	ForeignKeys []db.ForeignKey
+	Indexes     []db.Index
 }
 
 // Load returns schema information for every table in the database.
@@ -31,11 +32,20 @@ func Load(ctx context.Context, client db.Client) ([]Table, error) {
 		if err != nil {
 			return nil, err
 		}
+		var indexes []db.Index
+		if e.Kind != db.KindView {
+			idxs, err := client.Indexes(ctx, e.Name)
+			if err != nil {
+				return nil, err
+			}
+			indexes = idxs
+		}
 		tables = append(tables, Table{
 			Name:        e.Name,
 			Kind:        e.Kind,
 			Columns:     cols,
 			ForeignKeys: fks,
+			Indexes:     indexes,
 		})
 	}
 	return tables, nil

@@ -58,6 +58,12 @@ func (v *HelpOverlayView) View() string {
 			},
 		},
 		{
+			title: "Table List",
+			bindings: []key.Binding{
+				v.keys.TableListFilter,
+			},
+		},
+		{
 			title: "Data",
 			bindings: []key.Binding{
 				v.keys.Sort, v.keys.Export,

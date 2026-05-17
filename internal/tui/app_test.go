@@ -748,3 +748,61 @@ func TestApp_CellViewer_OpensFromRowBrowser(t *testing.T) {
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
+
+func TestApp_TableListFilter_ColumnSubMatch(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS filter_test_items")
+		_ = client.Close()
+	}()
+
+	if _, err := client.Query(ctx, `CREATE TABLE IF NOT EXISTS filter_test_items (
+		id               SERIAL PRIMARY KEY,
+		unique_email_col TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	// Wait for the fixture table to appear in the table list.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "filter_test_items")
+	}, teatest.WithDuration(15*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Wait for schema cache to load (status bar stops showing "schema loading…").
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return !strings.Contains(string(bts), "schema loading")
+	}, teatest.WithDuration(15*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Press / to open the filter input.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "filter tables")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Type a substring of the column name "unique_email_col".
+	for _, r := range "unique_email" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	// The fixture table should be visible (matched via column name) and auto-expanded
+	// showing tree nodes (Columns section).
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "filter_test_items") && strings.Contains(s, "Columns")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}

@@ -169,3 +169,6 @@ var StatusConnected = lipgloss.NewStyle().Foreground(colorPrimary)
 
 // GotoMatch styles characters in the goto dialog that matched the search query.
 var GotoMatch = lipgloss.NewStyle().Foreground(colorKey).Bold(true)
+
+// SearchHighlight styles matching substrings in the table list inline filter.
+var SearchHighlight = lipgloss.NewStyle().Foreground(colorKey).Bold(true)

@@ -28,6 +28,7 @@ func TestLoad_Postgres(t *testing.T) {
 		"DROP TABLE IF EXISTS sc_items",
 		"DROP TABLE IF EXISTS sc_categories",
 		"CREATE TABLE sc_categories (id SERIAL PRIMARY KEY, label TEXT NOT NULL)",
+		"CREATE INDEX sc_categories_label_idx ON sc_categories(label)",
 		`CREATE TABLE sc_items (
 			id          SERIAL PRIMARY KEY,
 			category_id INT REFERENCES sc_categories(id),
@@ -53,9 +54,23 @@ func TestLoad_Postgres(t *testing.T) {
 		found[tables[i].Name] = &tables[i]
 	}
 
-	if _, ok := found["sc_categories"]; !ok {
+	cats, ok := found["sc_categories"]
+	if !ok {
 		t.Error("sc_categories missing from schema")
+	} else {
+		// Indexes should be populated; the explicit label index must be present.
+		foundLabelIdx := false
+		for _, ix := range cats.Indexes {
+			if ix.Name == "sc_categories_label_idx" {
+				foundLabelIdx = true
+				break
+			}
+		}
+		if !foundLabelIdx {
+			t.Errorf("sc_categories_label_idx not found in indexes: %v", cats.Indexes)
+		}
 	}
+
 	items, ok := found["sc_items"]
 	if !ok {
 		t.Fatal("sc_items missing from schema")
