@@ -671,19 +671,51 @@ func (m TableListModel) subLines(idx int, ds dataset.Dataset) []string {
 		}
 	}
 
-	// Foreign keys
-	lines = append(lines, "  └─ Foreign Keys")
+	// Foreign keys — now a middle section for table/view rows (Referenced By follows).
+	// YAML SQL datasets (KindDataset) cannot be expanded so subLines is never called
+	// for them, but guard defensively to ensure correct box-drawing prefixes.
+	isLast := ds.Kind == dataset.KindDataset
+	fkHeader := "  ├─ Foreign Keys"
+	fkSubPrefix := "  │   "
+	if isLast {
+		fkHeader = "  └─ Foreign Keys"
+		fkSubPrefix = "      "
+	}
+	lines = append(lines, fkHeader)
 	switch n.expState {
 	case expLoaded:
 		if len(n.fks) == 0 {
-			lines = append(lines, "      (none)")
+			lines = append(lines, fkSubPrefix+"(none)")
 		} else {
 			for _, fk := range n.fks {
-				lines = append(lines, "      "+formatFK(fk))
+				lines = append(lines, fkSubPrefix+formatFK(fk))
 			}
 		}
 	case expError:
-		lines = append(lines, "      (error)")
+		lines = append(lines, fkSubPrefix+"(error)")
+	}
+
+	// Referenced By — absent for YAML SQL datasets which have no underlying table.
+	if !isLast {
+		lines = append(lines, "  └─ Referenced By")
+		if m.schemaCache == nil || !m.schemaCache.Ready() {
+			lines = append(lines, "      "+m.spinner.View()+" loading…")
+		} else {
+			var refBy []schema.InboundFK
+			for _, t := range m.schemaCache.Tables() {
+				if t.Name == ds.Table {
+					refBy = t.ReferencedBy
+					break
+				}
+			}
+			if len(refBy) == 0 {
+				lines = append(lines, "      (none)")
+			} else {
+				for _, ibfk := range refBy {
+					lines = append(lines, "      ← "+ibfk.FromTable+"."+ibfk.FromColumn)
+				}
+			}
+		}
 	}
 
 	return lines

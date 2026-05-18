@@ -1074,6 +1074,103 @@ func TestApp_RowBrowser_InferredTotalOnLastPage(t *testing.T) {
 // ABSENCE of earlier filter text. Instead we verify a positive signal: after
 // switching back to pane 1 and pressing "/" again, the filter input opens EMPTY
 // (not pre-filled), confirming the filter was cleared when focus left.
+// TestApp_ReverseFKDrill_SmokeTest verifies the end-to-end reverse FK drill flow:
+// open a table with an inbound FK → press "<" on the referenced column → assert the
+// drill stack contains a reverse level (breadcrumb uses "←").
+func TestApp_ReverseFKDrill_SmokeTest(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	// Table names must avoid the `k` and `j` characters: these single letters are
+	// bound to Up/Down navigation and get intercepted by the table-list filter input
+	// before reaching the textinput's default handler.
+	const parentTable = "rfdrillparent"
+	const childTable = "rfdrillchild"
+
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS "+childTable)
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS "+parentTable)
+		_ = client.Close()
+	}()
+
+	if _, err := client.Query(ctx, `CREATE TABLE IF NOT EXISTS `+parentTable+` (
+		id SERIAL PRIMARY KEY
+	)`); err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	if _, err := client.Query(ctx, `CREATE TABLE IF NOT EXISTS `+childTable+` (
+		id        SERIAL PRIMARY KEY,
+		parent_id INT REFERENCES `+parentTable+`(id)
+	)`); err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+	if _, err := client.Query(ctx, "INSERT INTO "+parentTable+" DEFAULT VALUES"); err != nil {
+		t.Fatalf("insert parent: %v", err)
+	}
+	if _, err := client.Query(ctx, "INSERT INTO "+childTable+" (parent_id) VALUES (1)"); err != nil {
+		t.Fatalf("insert child: %v", err)
+	}
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	// Wait for the parent table to appear in the table list.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), parentTable)
+	}, teatest.WithDuration(15*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Navigate to parentTable using Ctrl+P (goto overlay).
+	// We avoid the "/" filter because the filter also matches childTable via FK
+	// sub-matching (childTable references parentTable). The goto model searches
+	// by table/column names only, so it uniquely identifies parentTable.
+	// Also, the goto model only shows results once the schema cache is loaded,
+	// which makes waiting for results an implicit cache-ready gate.
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlP})
+
+	// Type parentTable name one rune at a time. The name must not contain k or j:
+	// those letters are intercepted as Up/Down navigation in the goto model.
+	for _, r := range parentTable {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	// Wait for the goto model to show parentTable — also confirms schema cache ready.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "Goto") && strings.Contains(string(bts), parentTable)
+	}, teatest.WithDuration(15*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Press Enter to select parentTable in the goto model.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Wait for row browser to open parentTable and load rows.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "2 "+parentTable) && strings.Contains(s, "page 1/")
+	}, teatest.WithDuration(15*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Press "<" — parentTable.id is referenced by childTable.parent_id (single
+	// referencing table), so the drill should happen immediately without a picker.
+	// The schema cache is already loaded (goto results appeared above), so the
+	// drill resolves the inbound FK immediately.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'<'}})
+
+	// After the reverse drill, the row browser loads childTable and shows "←"
+	// in the breadcrumb, confirming a reverse level was pushed.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "←") && strings.Contains(s, childTable)
+	}, teatest.WithDuration(15*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
 func TestAC_B10_LeavingPaneClearsFilter(t *testing.T) {
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	if dsn == "" {

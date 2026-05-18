@@ -548,7 +548,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !inModalInput && a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 				if ds := a.tableList.SelectedDataset(); ds != nil {
 					a.tableList = a.tableList.ClearFilter()
-					a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds, a.pageSizeRegistry)
+					a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds, a.pageSizeRegistry, a.schemaCache)
 					sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 					a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
 					a.rowBrowserReady = true
@@ -626,7 +626,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Dataset != nil {
 			a.tableList = a.tableList.ClearFilter()
 			a.tableList, _ = a.tableList.SelectByName(msg.Dataset.Name)
-			a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *msg.Dataset, a.pageSizeRegistry)
+			a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *msg.Dataset, a.pageSizeRegistry, a.schemaCache)
 			sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 			a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
 			a.rowBrowserReady = true
@@ -998,6 +998,7 @@ func (a *App) renderRowBrowserStatusBar(runningPart string) string {
 	if a.rowBrowser.IsFKColumn() {
 		keyParts = append(keyParts, style.StatusKey.Render("↵")+style.StatusDesc.Render(" drill"))
 	}
+	keyParts = append(keyParts, style.StatusKey.Render("<")+style.StatusDesc.Render(" ref by"))
 	right := strings.Join(keyParts, "  ")
 
 	left := info

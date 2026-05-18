@@ -9,6 +9,7 @@ var (
 	colorBg      = lipgloss.AdaptiveColor{Dark: "#1A1B26", Light: "#FAFAFA"}
 	colorBorder  = lipgloss.AdaptiveColor{Dark: "#3B4261", Light: "#D0D5E3"}
 	colorKey     = lipgloss.AdaptiveColor{Dark: "#BB9AF7", Light: "#6A5ACD"}
+	colorRefBy   = lipgloss.AdaptiveColor{Dark: "#9ECE6A", Light: "#3A6E00"}
 )
 
 // headerBase is the shared foundation for all three header segment styles.
@@ -108,6 +109,17 @@ var FKColHeader = lipgloss.NewStyle().
 // FKColHeaderActive styles the active (cursor) FK column header.
 var FKColHeaderActive = lipgloss.NewStyle().
 	Foreground(colorKey).
+	Bold(true).
+	Underline(true)
+
+// RefByColHeader styles column headers for columns referenced by at least one inbound FK.
+var RefByColHeader = lipgloss.NewStyle().
+	Foreground(colorRefBy).
+	Bold(true)
+
+// RefByColHeaderActive styles the active (cursor) referenced-by column header.
+var RefByColHeaderActive = lipgloss.NewStyle().
+	Foreground(colorRefBy).
 	Bold(true).
 	Underline(true)
 
