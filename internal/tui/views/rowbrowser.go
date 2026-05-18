@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
 
@@ -43,13 +44,26 @@ type pkColsLoadedInternal struct {
 	seq  int
 }
 
+// countLoadedMsg carries the result of a COUNT-only query (for G/End goto-last).
+type countLoadedMsg struct {
+	result *dataset.QueryResult
+	err    error
+	seq    int
+}
+
+// CountLoadedMsgForTest creates a countLoadedMsg for use in external test packages.
+func CountLoadedMsgForTest(result *dataset.QueryResult) tea.Msg {
+	return countLoadedMsg{result: result, seq: 0}
+}
+
 type uiMode int
 
 const (
-	modeNormal      uiMode = iota
-	modeFilterModal        // query filter modal is open
-	modeExportMenu         // choosing export format
-	modeExporting          // export in progress
+	modeNormal       uiMode = iota
+	modeFilterModal         // query filter modal is open
+	modeExportMenu          // choosing export format
+	modeExporting           // export in progress
+	modePageSizeInput       // page-size input bar is open
 )
 
 // exportEvent is sent by the export goroutine to report progress and completion.
@@ -62,18 +76,22 @@ type exportEvent struct {
 
 // savedLevel holds the complete state for one ancestor level of the drill-down stack.
 type savedLevel struct {
-	ds         dataset.Dataset
-	result     *dataset.QueryResult
-	fks        []db.ForeignKey
-	pkCols     []string
-	colWidths  []int
-	colOffset  int
-	colCursor  int
-	rowOffset  int
-	rowCursor  int
-	filters    []dataset.Filter
-	sort       *dataset.Sort
-	breadcrumb string // e.g. "→ customer_id = 1001 → customers"
+	ds              dataset.Dataset
+	result          *dataset.QueryResult
+	fks             []db.ForeignKey
+	pkCols          []string
+	colWidths        []int
+	colOffset        int
+	colCursor        int
+	rowOffset        int
+	rowCursor        int
+	filters          []dataset.Filter
+	sort             *dataset.Sort
+	breadcrumb       string // e.g. "→ customer_id = 1001 → customers"
+	pageSize         int    // snapshot of effective page size for this level
+	knownTotalPages  *int
+	knownTotalRows   *int64
+	knownTotalExact  bool
 }
 
 // compactParentRows is the maximum data rows shown per parent level in the drill view.
@@ -82,7 +100,7 @@ const compactParentRows = 4
 type RowBrowserModel struct {
 	ds         dataset.Dataset
 	result     *dataset.QueryResult
-	colWidths  []int
+	colWidths   []int
 	colOffset  int
 	colCursor  int
 	rowOffset  int
@@ -99,35 +117,59 @@ type RowBrowserModel struct {
 	height     int
 	executor   *dataset.Executor
 
-	filters      []dataset.Filter
-	sort         *dataset.Sort
-	mode         uiMode
-	filterModal  FilterModalModel
-	localSearch  LocalSearchState
+	filters        []dataset.Filter
+	sort           *dataset.Sort
+	mode           uiMode
+	filterModal    FilterModalModel
+	localSearch    LocalSearchState
 	exportProgress int
-	statusMsg    string
-	exporter     *export.Exporter
-	exportCh     chan exportEvent
-	exportCancel context.CancelFunc // non-nil only while modeExporting
+	statusMsg      string
+	exporter       *export.Exporter
+	exportCh       chan exportEvent
+	exportCancel   context.CancelFunc // non-nil only while modeExporting
+
+	// page size
+	pageSizes     *PageSizeRegistry
+	pageSizeInput textinput.Model
+	pageSizeError string
+
+	// discovered totals
+	knownTotalPages *int
+	knownTotalRows  *int64
+	knownTotalExact bool // true when from COUNT(*) (no tilde); false when inferred
+
+	// pendingRowCursor is set by applyPageSizeInput so that when the next page
+	// arrives the cursor lands on the row that was selected before the resize.
+	pendingRowCursor *int
 }
 
 // NewRowBrowserModel creates a RowBrowserModel in the initial loading state.
-// executor and exporter may be nil for testing.
-func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export.Exporter, ds dataset.Dataset) RowBrowserModel {
+// executor and exporter may be nil for testing. pageSizes may be nil (falls back to default 50).
+func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export.Exporter, ds dataset.Dataset, pageSizes *PageSizeRegistry) RowBrowserModel {
+	ti := textinput.New()
+	ti.CharLimit = 5
+	ti.Width = 8
 	return RowBrowserModel{
-		ds:          ds,
-		spinner:     newSpinner(),
-		loading:     true,
-		keys:        k,
-		executor:    executor,
-		exporter:    exporter,
-		localSearch: newLocalSearch(),
-		drillStack:  make([]savedLevel, 0, 4),
+		ds:            ds,
+		spinner:       newSpinner(),
+		loading:       true,
+		keys:          k,
+		executor:      executor,
+		exporter:      exporter,
+		localSearch:   newLocalSearch(),
+		drillStack:    make([]savedLevel, 0, 4),
+		pageSizes:     pageSizes,
+		pageSizeInput: ti,
 	}
 }
 
 func (m RowBrowserModel) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd(), m.loadPKColsCmd())
+}
+
+// currentPageSize returns the effective page size for the active dataset.
+func (m RowBrowserModel) currentPageSize() int {
+	return m.pageSizes.Get(m.ds.Name)
 }
 
 func (m RowBrowserModel) loadPageCmd(page int) tea.Cmd {
@@ -138,19 +180,45 @@ func (m RowBrowserModel) loadPageCmd(page int) tea.Cmd {
 	sort := m.sort
 	ds := m.ds
 	seq := m.drillSeq
+	pageSize := m.currentPageSize()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		result, err := m.executor.Query(ctx, ds, dataset.QueryOptions{
-			Page:     page,
-			PageSize: 50,
-			Filters:  filters,
-			Sort:     sort,
+			Page:      page,
+			PageSize:  pageSize,
+			Filters:   filters,
+			Sort:      sort,
+			SkipCount: true,
 		})
 		if err != nil {
 			return ErrMsg{err}
 		}
 		return rowsLoadedInternal{result: result, seq: seq}
+	}
+}
+
+// loadCountCmd issues a COUNT-only query for the G/End goto-last flow.
+func (m RowBrowserModel) loadCountCmd() tea.Cmd {
+	if m.executor == nil {
+		return nil
+	}
+	filters := m.filters
+	sort := m.sort
+	ds := m.ds
+	seq := m.drillSeq
+	pageSize := m.currentPageSize()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		result, err := m.executor.Query(ctx, ds, dataset.QueryOptions{
+			Page:      1,
+			PageSize:  pageSize,
+			Filters:   filters,
+			Sort:      sort,
+			OnlyCount: true,
+		})
+		return countLoadedMsg{result: result, err: err, seq: seq}
 	}
 }
 
@@ -193,7 +261,26 @@ func (m RowBrowserModel) applyLoadedResult(r *dataset.QueryResult) RowBrowserMod
 	m.loading = false
 	m.rowCursor = 0
 	m.rowOffset = 0
+	if m.pendingRowCursor != nil {
+		target := *m.pendingRowCursor
+		m.pendingRowCursor = nil
+		if target >= len(r.Rows) {
+			target = max(0, len(r.Rows)-1)
+		}
+		m.rowCursor = target
+		if vis := m.visibleRowCount(); vis > 0 {
+			m.rowOffset = max(0, m.rowCursor-vis/2)
+		}
+	}
 	m.colWidths = computeColWidths(r.Columns, r.Rows)
+	// Discover total when we reach the last page, unless we already have an exact total.
+	if !r.HasMore && !m.knownTotalExact {
+		page := r.Page
+		m.knownTotalPages = &page
+		rows := (int64(r.Page-1)*int64(r.PageSize)) + int64(len(r.Rows))
+		m.knownTotalRows = &rows
+		// knownTotalExact stays false (tilde shown)
+	}
 	// Recompute local search against new page
 	if m.localSearch.IsActive() {
 		m.localSearch = m.localSearch.recompute(m.localSearch.Query(), r.Columns, r.Rows)
@@ -218,6 +305,8 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 			m.localSearch = m.localSearch.cleared()
 			m.mode = modeNormal
 			m.statusMsg = ""
+			m.knownTotalPages = nil
+			m.knownTotalRows = nil
 			if m.executor != nil {
 				m.loading = true
 				return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1), cmd)
@@ -234,6 +323,27 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 				m.spinner, _ = m.spinner.Update(msg)
 			}
 		}
+		return m, cmd
+	}
+
+	// Route all messages to page size input when it is open.
+	if m.mode == modePageSizeInput {
+		if ws, ok := msg.(tea.WindowSizeMsg); ok {
+			m.width = ws.Width
+			m.height = ws.Height
+			return m, nil
+		}
+		if tkMsg, ok := msg.(spinner.TickMsg); ok {
+			if m.loading {
+				m.spinner, _ = m.spinner.Update(tkMsg)
+			}
+			return m, nil
+		}
+		if kmMsg, ok := msg.(tea.KeyMsg); ok {
+			return m.handlePageSizeInputKey(kmMsg)
+		}
+		// Forward other messages (cursor blink, etc.) to text input.
+		m.pageSizeInput, cmd = m.pageSizeInput.Update(msg)
 		return m, cmd
 	}
 
@@ -257,6 +367,30 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 			return m, nil
 		}
 		return m.applyLoadedResult(msg.result), nil
+
+	case countLoadedMsg:
+		if msg.seq != m.drillSeq {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.statusMsg = "goto last failed: " + msg.err.Error()
+			return m, nil
+		}
+		// Store exact totals from COUNT(*).
+		if msg.result.TotalPages != nil {
+			m.knownTotalPages = msg.result.TotalPages
+		}
+		if msg.result.TotalRows != nil {
+			m.knownTotalRows = msg.result.TotalRows
+		}
+		m.knownTotalExact = true
+		m.statusMsg = ""
+		if m.knownTotalPages != nil {
+			lastPage := *m.knownTotalPages
+			m.loading = true
+			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(lastPage))
+		}
+		return m, nil
 
 	case FKsLoadedMsg:
 		m.fks = []db.ForeignKey(msg)
@@ -315,6 +449,8 @@ func (m RowBrowserModel) handleKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
 		return m.handleLocalSearchKey(msg)
 	}
 	switch m.mode {
+	case modePageSizeInput:
+		return m.handlePageSizeInputKey(msg)
 	case modeExportMenu:
 		return m.handleExportMenuKey(msg)
 	case modeExporting:
@@ -353,6 +489,67 @@ func (m RowBrowserModel) handleLocalSearchKey(msg tea.KeyMsg) (RowBrowserModel, 
 		}
 		return m, cmd
 	}
+}
+
+func (m RowBrowserModel) handlePageSizeInputKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		return m.applyPageSizeInput()
+	case tea.KeyEsc:
+		m.mode = modeNormal
+		m.pageSizeError = ""
+		return m, nil
+	case tea.KeyRunes:
+		// Silently drop non-digit characters.
+		for _, r := range msg.Runes {
+			if r < '0' || r > '9' {
+				return m, nil
+			}
+		}
+		var cmd tea.Cmd
+		m.pageSizeInput, cmd = m.pageSizeInput.Update(msg)
+		m.pageSizeError = ""
+		return m, cmd
+	default:
+		// Allow Backspace, Delete, navigation keys.
+		var cmd tea.Cmd
+		m.pageSizeInput, cmd = m.pageSizeInput.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m RowBrowserModel) applyPageSizeInput() (RowBrowserModel, tea.Cmd) {
+	val := strings.TrimSpace(m.pageSizeInput.Value())
+	if val == "" {
+		m.pageSizeError = "must be between 1 and 10000"
+		return m, nil
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil || n < 1 || n > 10000 {
+		m.pageSizeError = "must be between 1 and 10000"
+		return m, nil
+	}
+	m.pageSizes.Set(m.ds.Name, n)
+	m.mode = modeNormal
+	m.pageSizeError = ""
+	// Changing page size invalidates the discovered total.
+	m.knownTotalPages = nil
+	m.knownTotalRows = nil
+	m.localSearch = m.localSearch.cleared()
+	// Stay near the current position: compute the absolute row of the cursor
+	// and derive which page that row falls on with the new size.
+	targetPage := 1
+	if m.result != nil {
+		absRow := (m.result.Page-1)*m.result.PageSize + m.rowCursor
+		targetPage = absRow/n + 1
+		cursorInPage := absRow % n
+		m.pendingRowCursor = &cursorInPage
+	}
+	if m.executor != nil {
+		m.loading = true
+		return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(targetPage))
+	}
+	return m, nil
 }
 
 func (m RowBrowserModel) handleExportMenuKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
@@ -406,6 +603,8 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 	case key.Matches(msg, m.keys.Sort):
 		m = m.cycleSort()
 		m.statusMsg = ""
+		m.knownTotalPages = nil
+		m.knownTotalRows = nil
 		if m.executor != nil {
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
@@ -415,17 +614,37 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 		m.mode = modeExportMenu
 
 	case key.Matches(msg, m.keys.NextPage):
-		if m.result.Page < m.result.TotalPages {
+		if m.result.HasMore {
 			m.localSearch = m.localSearch.cleared()
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(m.result.Page+1))
 		}
+
 	case key.Matches(msg, m.keys.PrevPage):
 		if m.result.Page > 1 {
 			m.localSearch = m.localSearch.cleared()
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(m.result.Page-1))
 		}
+
+	case key.Matches(msg, m.keys.FirstPage):
+		if m.result.Page != 1 {
+			m.localSearch = m.localSearch.cleared()
+			m.loading = true
+			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
+		}
+
+	case key.Matches(msg, m.keys.LastPage):
+		m.statusMsg = "Finding last page..."
+		return m, m.loadCountCmd()
+
+	case key.Matches(msg, m.keys.PageSize):
+		sz := m.currentPageSize()
+		m.pageSizeInput.SetValue(strconv.Itoa(sz))
+		m.pageSizeInput.CursorEnd()
+		m.mode = modePageSizeInput
+		m.pageSizeError = ""
+		return m, m.pageSizeInput.Focus()
 
 	case key.Matches(msg, m.keys.Down):
 		if m.rowCursor < len(m.result.Rows)-1 {
@@ -512,18 +731,22 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 	}
 
 	saved := savedLevel{
-		ds:         m.ds,
-		result:     m.result,
-		fks:        m.fks,
-		pkCols:     m.pkCols,
-		colWidths:  m.colWidths,
-		colOffset:  m.colOffset,
-		colCursor:  m.colCursor,
-		rowOffset:  m.rowOffset,
-		rowCursor:  m.rowCursor,
-		filters:    m.filters,
-		sort:       m.sort,
-		breadcrumb: fmt.Sprintf("→ %s = %v → %s", fk.Column, formatCellValue(cellValue), fk.ReferencedTable),
+		ds:             m.ds,
+		result:         m.result,
+		fks:            m.fks,
+		pkCols:         m.pkCols,
+		colWidths:       m.colWidths,
+		colOffset:      m.colOffset,
+		colCursor:      m.colCursor,
+		rowOffset:      m.rowOffset,
+		rowCursor:      m.rowCursor,
+		filters:        m.filters,
+		sort:           m.sort,
+		breadcrumb:     fmt.Sprintf("→ %s = %v → %s", fk.Column, formatCellValue(cellValue), fk.ReferencedTable),
+		pageSize:       m.currentPageSize(),
+		knownTotalPages: m.knownTotalPages,
+		knownTotalRows:  m.knownTotalRows,
+		knownTotalExact: m.knownTotalExact,
 	}
 	m.drillStack = append(m.drillStack, saved)
 
@@ -547,6 +770,9 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 	m.statusMsg = ""
 	m.mode = modeNormal
 	m.localSearch = m.localSearch.cleared()
+	m.knownTotalPages = nil
+	m.knownTotalRows = nil
+	m.knownTotalExact = false
 	m.drillSeq++
 
 	return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd(), m.loadPKColsCmd())
@@ -616,6 +842,9 @@ func (m RowBrowserModel) popDrillStack() (RowBrowserModel, tea.Cmd) {
 	m.statusMsg = ""
 	m.mode = modeNormal
 	m.localSearch = m.localSearch.cleared()
+	m.knownTotalPages = last.knownTotalPages
+	m.knownTotalRows = last.knownTotalRows
+	m.knownTotalExact = last.knownTotalExact
 	m.drillSeq++ // invalidate any in-flight child loads
 
 	return m, nil
@@ -693,24 +922,28 @@ func (m RowBrowserModel) Page() int {
 	return m.result.Page
 }
 
-func (m RowBrowserModel) TotalPages() int {
-	if m.result == nil {
-		return 0
+// TotalPages returns the discovered total page count and whether it is known.
+func (m RowBrowserModel) TotalPages() (int, bool) {
+	if m.knownTotalPages == nil {
+		return 0, false
 	}
-	return m.result.TotalPages
+	return *m.knownTotalPages, true
 }
 
-func (m RowBrowserModel) TotalRows() int64 {
-	if m.result == nil {
-		return 0
+// TotalRows returns the discovered total row count and whether it is known.
+func (m RowBrowserModel) TotalRows() (int64, bool) {
+	if m.knownTotalRows == nil {
+		return 0, false
 	}
-	return m.result.TotalRows
+	return *m.knownTotalRows, true
 }
 
 func (m RowBrowserModel) ColOffset() int               { return m.colOffset }
 func (m RowBrowserModel) ColCursor() int               { return m.colCursor }
 func (m RowBrowserModel) DatasetName() string          { return m.ds.Name }
 func (m RowBrowserModel) RowCursor() int               { return m.rowCursor }
+func (m RowBrowserModel) RowOffset() int               { return m.rowOffset }
+func (m RowBrowserModel) VisibleRowCount() int         { return m.visibleRowCount() }
 func (m RowBrowserModel) ForeignKeys() []db.ForeignKey { return m.fks }
 func (m RowBrowserModel) DrillDepth() int              { return len(m.drillStack) }
 func (m RowBrowserModel) IsLoading() bool              { return m.loading }
@@ -718,6 +951,7 @@ func (m RowBrowserModel) Err() error                   { return m.err }
 func (m RowBrowserModel) Filters() []dataset.Filter    { return m.filters }
 func (m RowBrowserModel) ActiveSort() *dataset.Sort    { return m.sort }
 func (m RowBrowserModel) IsFilterModalOpen() bool      { return m.mode == modeFilterModal }
+func (m RowBrowserModel) IsPageSizeInputOpen() bool    { return m.mode == modePageSizeInput }
 func (m RowBrowserModel) IsLocalSearchInputActive() bool {
 	return m.localSearch.InputActive()
 }
@@ -726,7 +960,7 @@ func (m RowBrowserModel) ExportMenuActive() bool { return m.mode == modeExportMe
 // BlocksGlobalKeys returns true when the row browser is consuming keys that
 // should not be intercepted by the App (modal open, local search input active).
 func (m RowBrowserModel) BlocksGlobalKeys() bool {
-	return m.mode == modeFilterModal || m.localSearch.InputActive()
+	return m.mode == modeFilterModal || m.localSearch.InputActive() || m.mode == modePageSizeInput
 }
 
 // CancelExport cancels an in-progress export if one is running.
@@ -753,7 +987,7 @@ func (m RowBrowserModel) visibleRowCount() int {
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
-	if m.localSearch.InputActive() || m.mode == modeExportMenu || m.mode == modeExporting {
+	if m.localSearch.InputActive() || m.mode == modeExportMenu || m.mode == modeExporting || m.mode == modePageSizeInput {
 		bottomBarLines = 1
 	}
 	tableHeight := m.height - parentLines - filterPillLines - bottomBarLines
@@ -771,7 +1005,7 @@ func (m RowBrowserModel) IsFKColumn() bool {
 // NeedsBackKey returns true when the row browser is consuming the Back key
 // internally, so the app should not intercept it.
 func (m RowBrowserModel) NeedsBackKey() bool {
-	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0
+	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0 || m.mode == modePageSizeInput
 }
 
 // NeedsTabKey returns true when the row browser is consuming Tab internally
@@ -798,12 +1032,21 @@ func (m RowBrowserModel) StatusLine() string {
 		return m.ds.Name
 	}
 
-	base := fmt.Sprintf("%s  page %d/%d  %s rows",
-		m.ds.Name,
-		m.result.Page,
-		m.result.TotalPages,
-		formatCount(m.result.TotalRows),
-	)
+	var base string
+	if m.knownTotalPages != nil && m.knownTotalRows != nil {
+		rowsStr := formatCount(*m.knownTotalRows)
+		if !m.knownTotalExact {
+			rowsStr = "~" + rowsStr
+		}
+		base = fmt.Sprintf("%s  page %d/%d  %s rows",
+			m.ds.Name,
+			m.result.Page,
+			*m.knownTotalPages,
+			rowsStr,
+		)
+	} else {
+		base = fmt.Sprintf("%s  page %d", m.ds.Name, m.result.Page)
+	}
 
 	if len(m.filters) > 0 {
 		base += fmt.Sprintf("  [%d filter(s)]", len(m.filters))
@@ -877,7 +1120,7 @@ func (m RowBrowserModel) View() string {
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
-	if m.localSearch.InputActive() || m.mode == modeExportMenu || m.mode == modeExporting {
+	if m.localSearch.InputActive() || m.mode == modeExportMenu || m.mode == modeExporting || m.mode == modePageSizeInput {
 		bottomBarLines = 1
 	}
 
@@ -887,7 +1130,7 @@ func (m RowBrowserModel) View() string {
 	}
 	sections = append(sections, m.renderTable(tableHeight))
 
-	// Bottom bar (local search / export menu / exporting)
+	// Bottom bar (local search / export menu / exporting / page size input)
 	switch {
 	case m.localSearch.InputActive():
 		bar := style.FilterBar.Width(m.width).Render(m.localSearch.View(m.width))
@@ -905,6 +1148,13 @@ func (m RowBrowserModel) View() string {
 		bar := style.ExportBar.Width(m.width).Render(
 			style.Progress.Render(m.exportProgressText()),
 		)
+		sections = append(sections, bar)
+	case m.mode == modePageSizeInput:
+		content := "Page size: " + m.pageSizeInput.View()
+		if m.pageSizeError != "" {
+			content += "  (" + m.pageSizeError + ")"
+		}
+		bar := style.FilterBar.Width(m.width).Render(content)
 		sections = append(sections, bar)
 	}
 
@@ -927,8 +1177,12 @@ func (m RowBrowserModel) renderSavedLevel(level savedLevel) string {
 		return ""
 	}
 
+	var titleSuffix string
+	if level.knownTotalRows != nil {
+		titleSuffix = fmt.Sprintf(" (%s rows)", formatCount(*level.knownTotalRows))
+	}
 	sectionTitle := style.DrillSep.Render(
-		fmt.Sprintf("─ %s (%s rows) ", level.ds.Name, formatCount(level.result.TotalRows)),
+		fmt.Sprintf("─ %s%s ", level.ds.Name, titleSuffix),
 	)
 
 	cols := level.result.Columns

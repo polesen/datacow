@@ -71,7 +71,7 @@ func (e *Exporter) forEachPage(
 			progressFn(total)
 		}
 
-		if page >= result.TotalPages {
+		if result.TotalPages == nil || page >= *result.TotalPages {
 			break
 		}
 	}
