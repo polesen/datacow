@@ -388,15 +388,29 @@ func TestRowBrowserModel_PageSizeInput_ValidValue_TriggersLoad(t *testing.T) {
 }
 
 func TestRowBrowserModel_PageSizeInput_PreservesPosition(t *testing.T) {
-	// On page 3 of 50-row pages the first absolute row is (3-1)*50 = 100.
-	// Shrinking to 25 rows per page: 100/25+1 = page 5.
+	// Page 3, cursor at row 10, page size 50:
+	//   absolute row = (3-1)*50 + 10 = 110
+	// Shrink to 25: new page = 110/25+1 = 5, cursor in page = 110%25 = 10.
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	reg := views.NewPageSizeRegistry(50)
 	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
 
-	// Simulate being on page 3 with HasMore=true.
-	result := makeResult(3, 10, 0, []db.Column{{Name: "id"}}, []map[string]any{{"id": 1}})
+	// Page 3 with 50 rows, HasMore=true.
+	rows := make([]map[string]any, 50)
+	for i := range rows {
+		rows[i] = map[string]any{"id": i + 1}
+	}
+	result := makeResult(3, 10, 0, []db.Column{{Name: "id"}}, rows)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Move cursor to row 10.
+	for range 10 {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if m.RowCursor() != 10 {
+		t.Fatalf("pre-condition: cursor should be at row 10, got %d", m.RowCursor())
+	}
 
 	// Open page-size input, clear "50", type "25", Enter.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
@@ -407,20 +421,25 @@ func TestRowBrowserModel_PageSizeInput_PreservesPosition(t *testing.T) {
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	// Model should be loading (executor is nil so IsLoading won't flip, but
-	// the page stored before the load command is the preserved page 5).
-	// With nil executor no reload fires; verify the page isn't reset to 1
-	// by checking that the model is still showing the old result on page 3
-	// until a new RowsLoadedMsg arrives.
-	if m.Page() != 3 {
-		t.Errorf("page should still be 3 (old result) before new load arrives, got %d", m.Page())
+	// Simulate the new load arriving on page 5 (with 25 rows).
+	newRows := make([]map[string]any, 25)
+	for i := range newRows {
+		newRows[i] = map[string]any{"id": i + 1}
 	}
-
-	// Simulate the new load arriving on page 5.
-	newResult := makeResult(5, 0, 0, []db.Column{{Name: "id"}}, []map[string]any{{"id": 1}})
+	newResult := makeResult(5, 10, 0, []db.Column{{Name: "id"}}, newRows)
 	m, _ = m.Update(views.RowsLoadedMsg(newResult))
+
 	if m.Page() != 5 {
-		t.Errorf("after page size change from page 3/size 50 → size 25, expected page 5, got %d", m.Page())
+		t.Errorf("expected page 5, got %d", m.Page())
+	}
+	if m.RowCursor() != 10 {
+		t.Errorf("expected cursor at row 10, got %d", m.RowCursor())
+	}
+	// Cursor must be visible: rowOffset ≤ cursor < rowOffset + visibleRows.
+	vis := m.VisibleRowCount()
+	off := m.RowOffset()
+	if m.RowCursor() < off || (vis > 0 && m.RowCursor() >= off+vis) {
+		t.Errorf("cursor %d not visible: offset=%d visible=%d", m.RowCursor(), off, vis)
 	}
 }
 

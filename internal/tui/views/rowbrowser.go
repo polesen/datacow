@@ -137,6 +137,10 @@ type RowBrowserModel struct {
 	knownTotalPages *int
 	knownTotalRows  *int64
 	knownTotalExact bool // true when from COUNT(*) (no tilde); false when inferred
+
+	// pendingRowCursor is set by applyPageSizeInput so that when the next page
+	// arrives the cursor lands on the row that was selected before the resize.
+	pendingRowCursor *int
 }
 
 // NewRowBrowserModel creates a RowBrowserModel in the initial loading state.
@@ -257,6 +261,17 @@ func (m RowBrowserModel) applyLoadedResult(r *dataset.QueryResult) RowBrowserMod
 	m.loading = false
 	m.rowCursor = 0
 	m.rowOffset = 0
+	if m.pendingRowCursor != nil {
+		target := *m.pendingRowCursor
+		m.pendingRowCursor = nil
+		if target >= len(r.Rows) {
+			target = max(0, len(r.Rows)-1)
+		}
+		m.rowCursor = target
+		if vis := m.visibleRowCount(); vis > 0 {
+			m.rowOffset = max(0, m.rowCursor-vis/2)
+		}
+	}
 	m.colWidths = computeColWidths(r.Columns, r.Rows)
 	// Discover total when we reach the last page, unless we already have an exact total.
 	if !r.HasMore && !m.knownTotalExact {
@@ -521,15 +536,17 @@ func (m RowBrowserModel) applyPageSizeInput() (RowBrowserModel, tea.Cmd) {
 	m.knownTotalPages = nil
 	m.knownTotalRows = nil
 	m.localSearch = m.localSearch.cleared()
+	// Stay near the current position: compute the absolute row of the cursor
+	// and derive which page that row falls on with the new size.
+	targetPage := 1
+	if m.result != nil {
+		absRow := (m.result.Page-1)*m.result.PageSize + m.rowCursor
+		targetPage = absRow/n + 1
+		cursorInPage := absRow % n
+		m.pendingRowCursor = &cursorInPage
+	}
 	if m.executor != nil {
 		m.loading = true
-		// Stay near the current position: compute the absolute first row of the
-		// current page and derive which page that row falls on with the new size.
-		targetPage := 1
-		if m.result != nil {
-			firstRow := (m.result.Page - 1) * m.result.PageSize
-			targetPage = firstRow/n + 1
-		}
 		return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(targetPage))
 	}
 	return m, nil
@@ -925,6 +942,8 @@ func (m RowBrowserModel) ColOffset() int               { return m.colOffset }
 func (m RowBrowserModel) ColCursor() int               { return m.colCursor }
 func (m RowBrowserModel) DatasetName() string          { return m.ds.Name }
 func (m RowBrowserModel) RowCursor() int               { return m.rowCursor }
+func (m RowBrowserModel) RowOffset() int               { return m.rowOffset }
+func (m RowBrowserModel) VisibleRowCount() int         { return m.visibleRowCount() }
 func (m RowBrowserModel) ForeignKeys() []db.ForeignKey { return m.fks }
 func (m RowBrowserModel) DrillDepth() int              { return len(m.drillStack) }
 func (m RowBrowserModel) IsLoading() bool              { return m.loading }
