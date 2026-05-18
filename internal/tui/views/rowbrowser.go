@@ -523,7 +523,14 @@ func (m RowBrowserModel) applyPageSizeInput() (RowBrowserModel, tea.Cmd) {
 	m.localSearch = m.localSearch.cleared()
 	if m.executor != nil {
 		m.loading = true
-		return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
+		// Stay near the current position: compute the absolute first row of the
+		// current page and derive which page that row falls on with the new size.
+		targetPage := 1
+		if m.result != nil {
+			firstRow := (m.result.Page - 1) * m.result.PageSize
+			targetPage = firstRow/n + 1
+		}
+		return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(targetPage))
 	}
 	return m, nil
 }

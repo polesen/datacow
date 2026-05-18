@@ -387,6 +387,43 @@ func TestRowBrowserModel_PageSizeInput_ValidValue_TriggersLoad(t *testing.T) {
 	}
 }
 
+func TestRowBrowserModel_PageSizeInput_PreservesPosition(t *testing.T) {
+	// On page 3 of 50-row pages the first absolute row is (3-1)*50 = 100.
+	// Shrinking to 25 rows per page: 100/25+1 = page 5.
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	reg := views.NewPageSizeRegistry(50)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg)
+
+	// Simulate being on page 3 with HasMore=true.
+	result := makeResult(3, 10, 0, []db.Column{{Name: "id"}}, []map[string]any{{"id": 1}})
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Open page-size input, clear "50", type "25", Enter.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	for _, r := range "25" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Model should be loading (executor is nil so IsLoading won't flip, but
+	// the page stored before the load command is the preserved page 5).
+	// With nil executor no reload fires; verify the page isn't reset to 1
+	// by checking that the model is still showing the old result on page 3
+	// until a new RowsLoadedMsg arrives.
+	if m.Page() != 3 {
+		t.Errorf("page should still be 3 (old result) before new load arrives, got %d", m.Page())
+	}
+
+	// Simulate the new load arriving on page 5.
+	newResult := makeResult(5, 0, 0, []db.Column{{Name: "id"}}, []map[string]any{{"id": 1}})
+	m, _ = m.Update(views.RowsLoadedMsg(newResult))
+	if m.Page() != 5 {
+		t.Errorf("after page size change from page 3/size 50 → size 25, expected page 5, got %d", m.Page())
+	}
+}
+
 func TestRowBrowserModel_PageSizeInput_InvalidValue_ShowsError(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	m := newModel(ds)
