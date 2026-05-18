@@ -27,7 +27,7 @@ func makeResult(page, totalPages int, _ int64, cols []db.Column, rows []map[stri
 
 
 func newModel(ds dataset.Dataset) views.RowBrowserModel {
-	return views.NewRowBrowserModel(keys.Default(), nil, nil, ds, nil)
+	return views.NewRowBrowserModel(keys.Default(), nil, nil, ds, nil, nil)
 }
 
 func TestRowBrowserModel_StartsLoading(t *testing.T) {
@@ -366,7 +366,7 @@ func TestRowBrowserModel_PageSizeInput_EscCloses(t *testing.T) {
 func TestRowBrowserModel_PageSizeInput_ValidValue_TriggersLoad(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	reg := views.NewPageSizeRegistry(50)
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg, nil)
 	result := makeResult(1, 3, 0, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
@@ -393,7 +393,7 @@ func TestRowBrowserModel_PageSizeInput_PreservesPosition(t *testing.T) {
 	// Shrink to 25: new page = 110/25+1 = 5, cursor in page = 110%25 = 10.
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	reg := views.NewPageSizeRegistry(50)
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	// Page 3 with 50 rows, HasMore=true.
@@ -469,7 +469,7 @@ func TestRowBrowserModel_PageSizeInput_InvalidValue_ShowsError(t *testing.T) {
 func TestRowBrowserModel_PageSizeInput_NonDigitDropped(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	reg := views.NewPageSizeRegistry(50)
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg, nil)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))

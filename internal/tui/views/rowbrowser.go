@@ -16,6 +16,7 @@ import (
 	"github.com/polesen/datacow/internal/core/dataset"
 	"github.com/polesen/datacow/internal/core/db"
 	"github.com/polesen/datacow/internal/core/export"
+	"github.com/polesen/datacow/internal/core/schema"
 	"github.com/polesen/datacow/internal/tui/keys"
 	"github.com/polesen/datacow/internal/tui/style"
 )
@@ -64,6 +65,7 @@ const (
 	modeExportMenu          // choosing export format
 	modeExporting           // export in progress
 	modePageSizeInput       // page-size input bar is open
+	modeRefByPicker         // "referenced by" picker overlay is open
 )
 
 // exportEvent is sent by the export goroutine to report progress and completion.
@@ -116,11 +118,13 @@ type RowBrowserModel struct {
 	width      int
 	height     int
 	executor   *dataset.Executor
+	schemaCache *schema.Cache
 
 	filters        []dataset.Filter
 	sort           *dataset.Sort
 	mode           uiMode
 	filterModal    FilterModalModel
+	refByPicker    RefByPickerModel
 	localSearch    LocalSearchState
 	exportProgress int
 	statusMsg      string
@@ -144,8 +148,9 @@ type RowBrowserModel struct {
 }
 
 // NewRowBrowserModel creates a RowBrowserModel in the initial loading state.
-// executor and exporter may be nil for testing. pageSizes may be nil (falls back to default 50).
-func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export.Exporter, ds dataset.Dataset, pageSizes *PageSizeRegistry) RowBrowserModel {
+// executor, exporter, and schemaCache may be nil for testing.
+// pageSizes may be nil (falls back to default 50).
+func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export.Exporter, ds dataset.Dataset, pageSizes *PageSizeRegistry, schemaCache *schema.Cache) RowBrowserModel {
 	ti := textinput.New()
 	ti.CharLimit = 5
 	ti.Width = 8
@@ -156,6 +161,7 @@ func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export
 		keys:          k,
 		executor:      executor,
 		exporter:      exporter,
+		schemaCache:   schemaCache,
 		localSearch:   newLocalSearch(),
 		drillStack:    make([]savedLevel, 0, 4),
 		pageSizes:     pageSizes,
@@ -344,6 +350,38 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		}
 		// Forward other messages (cursor blink, etc.) to text input.
 		m.pageSizeInput, cmd = m.pageSizeInput.Update(msg)
+		return m, cmd
+	}
+
+	// Route all messages to the referenced-by picker when it is open.
+	if m.mode == modeRefByPicker {
+		if ws, ok := msg.(tea.WindowSizeMsg); ok {
+			m.width = ws.Width
+			m.height = ws.Height
+			m.refByPicker, _ = m.refByPicker.Update(ws)
+			return m, nil
+		}
+		if _, ok := msg.(spinner.TickMsg); ok {
+			if m.loading {
+				m.spinner, _ = m.spinner.Update(msg)
+			}
+			return m, nil
+		}
+		m.refByPicker, cmd = m.refByPicker.Update(msg)
+		if m.refByPicker.IsSelected() {
+			m.mode = modeNormal
+			sel := m.refByPicker.Selection()
+			if m.result != nil && len(m.result.Rows) > 0 && m.rowCursor < len(m.result.Rows) {
+				colName := m.result.Columns[m.colCursor].Name
+				cellValue := m.result.Rows[m.rowCursor][colName]
+				return m.drillReverse(sel, cellValue)
+			}
+			return m, nil
+		}
+		if m.refByPicker.IsCancelled() {
+			m.mode = modeNormal
+			return m, nil
+		}
 		return m, cmd
 	}
 
@@ -677,8 +715,11 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 			}
 		}
 
-	case key.Matches(msg, m.keys.Enter):
+	case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.DrillFwd):
 		return m.handleDrillDown()
+
+	case key.Matches(msg, m.keys.DrillReverse):
+		return m.handleReverseDrillDown()
 
 	case key.Matches(msg, m.keys.ViewCell):
 		return m.openCellViewer()
@@ -761,6 +802,105 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 	m.rowCursor = 0
 	m.filters = []dataset.Filter{{
 		Column:   fk.ReferencedColumn,
+		Operator: "=",
+		Value:    cellValue,
+	}}
+	m.sort = nil
+	m.loading = true
+	m.err = nil
+	m.statusMsg = ""
+	m.mode = modeNormal
+	m.localSearch = m.localSearch.cleared()
+	m.knownTotalPages = nil
+	m.knownTotalRows = nil
+	m.knownTotalExact = false
+	m.drillSeq++
+
+	return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd(), m.loadPKColsCmd())
+}
+
+// handleReverseDrillDown implements the `<` key: show tables referencing the current cell's column.
+func (m RowBrowserModel) handleReverseDrillDown() (RowBrowserModel, tea.Cmd) {
+	if m.result == nil || len(m.result.Rows) == 0 || m.rowCursor >= len(m.result.Rows) {
+		return m, nil
+	}
+	if m.schemaCache == nil || !m.schemaCache.Ready() {
+		m.statusMsg = "schema loading — try again"
+		return m, nil
+	}
+
+	colName := m.result.Columns[m.colCursor].Name
+
+	var inboundFKs []schema.InboundFK
+	for _, t := range m.schemaCache.Tables() {
+		if t.Name == m.ds.Table {
+			for _, ibfk := range t.ReferencedBy {
+				if ibfk.ToColumn == colName {
+					inboundFKs = append(inboundFKs, ibfk)
+				}
+			}
+			break
+		}
+	}
+
+	if len(inboundFKs) == 0 {
+		m.statusMsg = "no tables reference this column"
+		return m, nil
+	}
+
+	row := m.result.Rows[m.rowCursor]
+	cellValue := row[colName]
+	if cellValue == nil {
+		return m, nil
+	}
+
+	if len(inboundFKs) == 1 {
+		return m.drillReverse(inboundFKs[0], cellValue)
+	}
+
+	picker := NewRefByPickerModel(inboundFKs, m.ds.Table, colName, formatCellValue(cellValue))
+	picker, _ = picker.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	var focusCmd tea.Cmd
+	m.refByPicker, focusCmd = picker.Focus()
+	m.mode = modeRefByPicker
+	return m, focusCmd
+}
+
+// drillReverse pushes a reverse-FK level onto the drill stack and loads the referencing table.
+func (m RowBrowserModel) drillReverse(ibfk schema.InboundFK, cellValue any) (RowBrowserModel, tea.Cmd) {
+	breadcrumb := fmt.Sprintf("← %s.%s = %s ← %s", ibfk.FromTable, ibfk.FromColumn, formatCellValue(cellValue), m.ds.Table)
+
+	saved := savedLevel{
+		ds:              m.ds,
+		result:          m.result,
+		fks:             m.fks,
+		pkCols:          m.pkCols,
+		colWidths:       m.colWidths,
+		colOffset:       m.colOffset,
+		colCursor:       m.colCursor,
+		rowOffset:       m.rowOffset,
+		rowCursor:       m.rowCursor,
+		filters:         m.filters,
+		sort:            m.sort,
+		breadcrumb:      breadcrumb,
+		pageSize:        m.currentPageSize(),
+		knownTotalPages: m.knownTotalPages,
+		knownTotalRows:  m.knownTotalRows,
+		knownTotalExact: m.knownTotalExact,
+	}
+	m.drillStack = append(m.drillStack, saved)
+
+	m.ds = dataset.Dataset{Name: ibfk.FromTable, Table: ibfk.FromTable}
+	m.result = nil
+	m.fks = nil
+	m.pkCols = nil
+	m.colWidths = nil
+	m.colOffset = 0
+	m.colCursor = 0
+	m.rowOffset = 0
+	m.rowCursor = 0
+	m.filters = []dataset.Filter{{
+		Column:   ibfk.FromColumn,
 		Operator: "=",
 		Value:    cellValue,
 	}}
@@ -960,7 +1100,7 @@ func (m RowBrowserModel) ExportMenuActive() bool { return m.mode == modeExportMe
 // BlocksGlobalKeys returns true when the row browser is consuming keys that
 // should not be intercepted by the App (modal open, local search input active).
 func (m RowBrowserModel) BlocksGlobalKeys() bool {
-	return m.mode == modeFilterModal || m.localSearch.InputActive() || m.mode == modePageSizeInput
+	return m.mode == modeFilterModal || m.localSearch.InputActive() || m.mode == modePageSizeInput || m.mode == modeRefByPicker
 }
 
 // CancelExport cancels an in-progress export if one is running.
@@ -1002,10 +1142,38 @@ func (m RowBrowserModel) IsFKColumn() bool {
 	return findFK(m.fks, m.result.Columns[m.colCursor].Name) != nil
 }
 
+// IsRefByColumn reports whether the currently selected column is referenced by at least one inbound FK.
+func (m RowBrowserModel) IsRefByColumn() bool {
+	if m.result == nil || m.colCursor >= len(m.result.Columns) {
+		return false
+	}
+	return m.refByColSetFromCache()[m.result.Columns[m.colCursor].Name]
+}
+
+// refByColSetFromCache returns a set of column names in the active table that are referenced by inbound FKs.
+func (m RowBrowserModel) refByColSetFromCache() map[string]bool {
+	if m.schemaCache == nil || !m.schemaCache.Ready() || m.ds.Table == "" {
+		return nil
+	}
+	for _, t := range m.schemaCache.Tables() {
+		if t.Name == m.ds.Table {
+			if len(t.ReferencedBy) == 0 {
+				return nil
+			}
+			result := make(map[string]bool, len(t.ReferencedBy))
+			for _, ibfk := range t.ReferencedBy {
+				result[ibfk.ToColumn] = true
+			}
+			return result
+		}
+	}
+	return nil
+}
+
 // NeedsBackKey returns true when the row browser is consuming the Back key
 // internally, so the app should not intercept it.
 func (m RowBrowserModel) NeedsBackKey() bool {
-	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0 || m.mode == modePageSizeInput
+	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0 || m.mode == modePageSizeInput || m.mode == modeRefByPicker
 }
 
 // NeedsTabKey returns true when the row browser is consuming Tab internally
@@ -1071,6 +1239,11 @@ func (m RowBrowserModel) View() string {
 	// Filter modal takes the full view area.
 	if m.mode == modeFilterModal {
 		return style.Content.Width(m.width).Height(m.height).Render(m.filterModal.View())
+	}
+
+	// RefBy picker overlay takes the full view area.
+	if m.mode == modeRefByPicker {
+		return style.Content.Width(m.width).Height(m.height).Render(m.refByPicker.View())
 	}
 
 	// Full-screen spinner for the initial root-level load (no parent levels yet).
@@ -1193,7 +1366,7 @@ func (m RowBrowserModel) renderSavedLevel(level savedLevel) string {
 	}
 
 	fkCols := fkColSet(level.fks)
-	header := buildHeader(cols, level.colWidths, visible, level.sort, level.colCursor, fkCols)
+	header := buildHeader(cols, level.colWidths, visible, level.sort, level.colCursor, fkCols, nil)
 	sep := buildSeparator(level.colWidths, visible)
 
 	lines := []string{sectionTitle, header, sep}
@@ -1243,7 +1416,8 @@ func (m RowBrowserModel) renderTable(height int) string {
 	}
 
 	fkCols := fkColSet(m.fks)
-	header := buildHeader(cols, m.colWidths, visible, m.sort, m.colCursor, fkCols)
+	refByCols := m.refByColSetFromCache()
+	header := buildHeader(cols, m.colWidths, visible, m.sort, m.colCursor, fkCols, refByCols)
 	sep := buildSeparator(m.colWidths, visible)
 
 	maxRows := max(0, height-2)
@@ -1311,38 +1485,62 @@ func fkColSet(fks []db.ForeignKey) map[string]bool {
 	return m
 }
 
-func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.Sort, cursor int, fkCols map[string]bool) string {
+func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.Sort, cursor int, fkCols map[string]bool, refByCols map[string]bool) string {
 	parts := make([]string, len(visible))
 	for j, i := range visible {
 		name := cols[i].Name
 		w := widths[i]
 		isFKCol := fkCols[name]
+		isRefByCol := refByCols[name]
 
-		var cell string
+		// Build the name/sort portion and the optional RefBy glyph separately.
+		var nameStr string
+		var glyphStr string
 		if sort != nil && sort.Column == name {
 			indicator := "↑"
 			if sort.Desc {
 				indicator = "↓"
 			}
 			usable := w - 2
+			if isRefByCol {
+				usable--
+			}
 			if usable < 0 {
 				usable = 0
 			}
 			nameCell := runewidth.FillRight(runewidth.Truncate(name, usable, "…"), usable)
-			cell = nameCell + " " + indicator
+			nameStr = nameCell + " " + indicator
 		} else {
-			cell = runewidth.FillRight(runewidth.Truncate(name, w, "…"), w)
+			usable := w
+			if isRefByCol {
+				usable--
+			}
+			if usable < 0 {
+				usable = 0
+			}
+			nameStr = runewidth.FillRight(runewidth.Truncate(name, usable, "…"), usable)
+		}
+		if isRefByCol {
+			glyphStr = "↩"
 		}
 
 		switch {
+		case i == cursor && isFKCol && isRefByCol:
+			parts[j] = style.FKColHeaderActive.Render(nameStr) + style.RefByColHeaderActive.Render(glyphStr)
 		case i == cursor && isFKCol:
-			parts[j] = style.FKColHeaderActive.Render(cell)
+			parts[j] = style.FKColHeaderActive.Render(nameStr)
+		case i == cursor && isRefByCol:
+			parts[j] = style.RefByColHeaderActive.Render(nameStr + glyphStr)
 		case i == cursor:
-			parts[j] = style.ColHeaderActive.Render(cell)
+			parts[j] = style.ColHeaderActive.Render(nameStr)
+		case isFKCol && isRefByCol:
+			parts[j] = style.FKColHeader.Render(nameStr) + style.RefByColHeader.Render(glyphStr)
 		case isFKCol:
-			parts[j] = style.FKColHeader.Render(cell)
+			parts[j] = style.FKColHeader.Render(nameStr)
+		case isRefByCol:
+			parts[j] = style.RefByColHeader.Render(nameStr + glyphStr)
 		default:
-			parts[j] = style.ColHeader.Render(cell)
+			parts[j] = style.ColHeader.Render(nameStr)
 		}
 	}
 	return strings.Join(parts, "  ")

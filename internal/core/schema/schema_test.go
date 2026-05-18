@@ -78,4 +78,28 @@ func TestLoad_Postgres(t *testing.T) {
 	if len(items.ForeignKeys) != 1 {
 		t.Errorf("sc_items FK count: got %d, want 1", len(items.ForeignKeys))
 	}
+
+	// ReferencedBy: sc_categories must have one inbound FK from sc_items.
+	if cats == nil {
+		t.Fatal("sc_categories was nil, cannot check ReferencedBy")
+	}
+	if len(cats.ReferencedBy) != 1 {
+		t.Errorf("sc_categories.ReferencedBy count: got %d, want 1", len(cats.ReferencedBy))
+	} else {
+		ibfk := cats.ReferencedBy[0]
+		if ibfk.FromTable != "sc_items" {
+			t.Errorf("ReferencedBy[0].FromTable = %q, want %q", ibfk.FromTable, "sc_items")
+		}
+		if ibfk.FromColumn != "category_id" {
+			t.Errorf("ReferencedBy[0].FromColumn = %q, want %q", ibfk.FromColumn, "category_id")
+		}
+		if ibfk.ToColumn != "id" {
+			t.Errorf("ReferencedBy[0].ToColumn = %q, want %q", ibfk.ToColumn, "id")
+		}
+	}
+
+	// sc_items is not referenced by any table in the test schema.
+	if len(items.ReferencedBy) != 0 {
+		t.Errorf("sc_items.ReferencedBy count: got %d, want 0", len(items.ReferencedBy))
+	}
 }
