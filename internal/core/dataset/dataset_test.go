@@ -140,8 +140,8 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if err != nil {
 			t.Fatalf("Query: %v", err)
 		}
-		if result.TotalRows != 5 {
-			t.Errorf("TotalRows: got %d, want 5", result.TotalRows)
+		if result.TotalRows == nil || *result.TotalRows != 5 {
+			t.Errorf("TotalRows: got %v, want 5", result.TotalRows)
 		}
 		if len(result.Rows) != 5 {
 			t.Errorf("row count: got %d, want 5", len(result.Rows))
@@ -152,8 +152,8 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if result.PageSize != 10 {
 			t.Errorf("PageSize: got %d, want 10", result.PageSize)
 		}
-		if result.TotalPages != 1 {
-			t.Errorf("TotalPages: got %d, want 1", result.TotalPages)
+		if result.TotalPages == nil || *result.TotalPages != 1 {
+			t.Errorf("TotalPages: got %v, want 1", result.TotalPages)
 		}
 		if len(result.Columns) == 0 {
 			t.Error("Columns should not be empty")
@@ -165,14 +165,14 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if err != nil {
 			t.Fatalf("Query page 1: %v", err)
 		}
-		if result.TotalRows != 5 {
-			t.Errorf("TotalRows: got %d, want 5", result.TotalRows)
+		if result.TotalRows == nil || *result.TotalRows != 5 {
+			t.Errorf("TotalRows: got %v, want 5", result.TotalRows)
 		}
 		if len(result.Rows) != 2 {
 			t.Errorf("row count page 1: got %d, want 2", len(result.Rows))
 		}
-		if result.TotalPages != 3 {
-			t.Errorf("TotalPages: got %d, want 3", result.TotalPages)
+		if result.TotalPages == nil || *result.TotalPages != 3 {
+			t.Errorf("TotalPages: got %v, want 3", result.TotalPages)
 		}
 
 		result2, err := ex.Query(ctx, ds, dataset.QueryOptions{Page: 3, PageSize: 2})
@@ -195,8 +195,8 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if err != nil {
 			t.Fatalf("Query: %v", err)
 		}
-		if result.TotalRows != 3 {
-			t.Errorf("TotalRows: got %d, want 3", result.TotalRows)
+		if result.TotalRows == nil || *result.TotalRows != 3 {
+			t.Errorf("TotalRows: got %v, want 3", result.TotalRows)
 		}
 	})
 
@@ -211,8 +211,8 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if err != nil {
 			t.Fatalf("Query: %v", err)
 		}
-		if result.TotalRows != 1 {
-			t.Errorf("TotalRows: got %d, want 1", result.TotalRows)
+		if result.TotalRows == nil || *result.TotalRows != 1 {
+			t.Errorf("TotalRows: got %v, want 1", result.TotalRows)
 		}
 	})
 
@@ -227,8 +227,8 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if err != nil {
 			t.Fatalf("Query: %v", err)
 		}
-		if result.TotalRows != 2 { // Apple 1.50, Elderberry 3.00
-			t.Errorf("TotalRows: got %d, want 2", result.TotalRows)
+		if result.TotalRows == nil || *result.TotalRows != 2 { // Apple 1.50, Elderberry 3.00
+			t.Errorf("TotalRows: got %v, want 2", result.TotalRows)
 		}
 	})
 
@@ -243,8 +243,8 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if err != nil {
 			t.Fatalf("Query: %v", err)
 		}
-		if result.TotalRows != 2 { // Banana 0.75, Carrot 0.50
-			t.Errorf("TotalRows: got %d, want 2", result.TotalRows)
+		if result.TotalRows == nil || *result.TotalRows != 2 { // Banana 0.75, Carrot 0.50
+			t.Errorf("TotalRows: got %v, want 2", result.TotalRows)
 		}
 	})
 
@@ -259,8 +259,8 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if err != nil {
 			t.Fatalf("Query: %v", err)
 		}
-		if result.TotalRows != 3 { // Apple 1.50, Daikon 1.00, Elderberry 3.00
-			t.Errorf("TotalRows: got %d, want 3", result.TotalRows)
+		if result.TotalRows == nil || *result.TotalRows != 3 { // Apple 1.50, Daikon 1.00, Elderberry 3.00
+			t.Errorf("TotalRows: got %v, want 3", result.TotalRows)
 		}
 	})
 
@@ -275,8 +275,8 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if err != nil {
 			t.Fatalf("Query: %v", err)
 		}
-		if result.TotalRows != 3 { // Banana 0.75, Carrot 0.50, Daikon 1.00
-			t.Errorf("TotalRows: got %d, want 3", result.TotalRows)
+		if result.TotalRows == nil || *result.TotalRows != 3 { // Banana 0.75, Carrot 0.50, Daikon 1.00
+			t.Errorf("TotalRows: got %v, want 3", result.TotalRows)
 		}
 	})
 
@@ -327,8 +327,8 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		if err != nil {
 			t.Fatalf("Query sql dataset: %v", err)
 		}
-		if result.TotalRows != 2 {
-			t.Errorf("TotalRows: got %d, want 2", result.TotalRows)
+		if result.TotalRows == nil || *result.TotalRows != 2 {
+			t.Errorf("TotalRows: got %v, want 2", result.TotalRows)
 		}
 	})
 
@@ -355,6 +355,69 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		})
 		if err == nil {
 			t.Error("expected error for injection attempt in column name")
+		}
+	})
+
+	t.Run("Query_SkipCount_has_more_true", func(t *testing.T) {
+		// ds_products has 5 rows; PageSize=2 probes 3 → HasMore=true.
+		result, err := ex.Query(ctx, ds, dataset.QueryOptions{Page: 1, PageSize: 2, SkipCount: true})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		if !result.HasMore {
+			t.Error("HasMore should be true when more rows exist")
+		}
+		if len(result.Rows) != 2 {
+			t.Errorf("got %d rows, want 2", len(result.Rows))
+		}
+		if result.TotalRows != nil {
+			t.Error("TotalRows should be nil with SkipCount")
+		}
+		if result.TotalPages != nil {
+			t.Error("TotalPages should be nil with SkipCount")
+		}
+	})
+
+	t.Run("Query_SkipCount_has_more_false", func(t *testing.T) {
+		// ds_products has 5 rows; PageSize=10 probes 11 → HasMore=false.
+		result, err := ex.Query(ctx, ds, dataset.QueryOptions{Page: 1, PageSize: 10, SkipCount: true})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		if result.HasMore {
+			t.Error("HasMore should be false when all rows fit in one page")
+		}
+		if len(result.Rows) != 5 {
+			t.Errorf("got %d rows, want 5", len(result.Rows))
+		}
+		if result.TotalRows != nil {
+			t.Error("TotalRows should be nil with SkipCount")
+		}
+	})
+
+	t.Run("Query_OnlyCount", func(t *testing.T) {
+		result, err := ex.Query(ctx, ds, dataset.QueryOptions{Page: 1, PageSize: 10, OnlyCount: true})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		if len(result.Rows) != 0 {
+			t.Errorf("Rows should be empty with OnlyCount, got %d", len(result.Rows))
+		}
+		if result.TotalRows == nil || *result.TotalRows != 5 {
+			t.Errorf("TotalRows: got %v, want 5", result.TotalRows)
+		}
+		if result.TotalPages == nil || *result.TotalPages != 1 {
+			t.Errorf("TotalPages: got %v, want 1", result.TotalPages)
+		}
+		if len(result.Columns) == 0 {
+			t.Error("Columns should be populated with OnlyCount")
+		}
+	})
+
+	t.Run("Query_SkipCount_and_OnlyCount_rejected", func(t *testing.T) {
+		_, err := ex.Query(ctx, ds, dataset.QueryOptions{Page: 1, PageSize: 10, SkipCount: true, OnlyCount: true})
+		if err == nil {
+			t.Error("expected error when both SkipCount and OnlyCount are set")
 		}
 	})
 }

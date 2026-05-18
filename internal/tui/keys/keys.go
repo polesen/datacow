@@ -30,6 +30,9 @@ type Map struct {
 	Back            key.Binding
 	NextPage        key.Binding
 	PrevPage        key.Binding
+	FirstPage       key.Binding
+	LastPage        key.Binding
+	PageSize        key.Binding
 	ViewCell        key.Binding
 	Goto            key.Binding
 	Refresh         key.Binding
@@ -139,6 +142,18 @@ func Default() Map {
 			key.WithKeys("[", "pgup"),
 			key.WithHelp("[", "prev page"),
 		),
+		FirstPage: key.NewBinding(
+			key.WithKeys("g", "home"),
+			key.WithHelp("g/home", "first page"),
+		),
+		LastPage: key.NewBinding(
+			key.WithKeys("G", "end"),
+			key.WithHelp("G/end", "last page"),
+		),
+		PageSize: key.NewBinding(
+			key.WithKeys("P"),
+			key.WithHelp("P", "page size"),
+		),
 		ViewCell: key.NewBinding(
 			key.WithKeys("v"),
 			key.WithHelp("v", "view cell"),
@@ -171,7 +186,7 @@ func (m Map) TableListHelp() []key.Binding {
 // FullHelp returns all bindings grouped for a full help overlay.
 func (m Map) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{m.Up, m.Down, m.Left, m.Right, m.Enter, m.Back, m.NextPage, m.PrevPage},
+		{m.Up, m.Down, m.Left, m.Right, m.Enter, m.Back, m.NextPage, m.PrevPage, m.FirstPage, m.LastPage, m.PageSize},
 		{m.QueryFilter, m.LocalSearch, m.QuickFilterCell, m.NextMatch, m.PrevMatch, m.Sort, m.Export, m.ViewCell},
 		{m.SwitchFocus, m.SwitchFocusBack, m.Pane1, m.Pane2, m.Pane3, m.Maximize, m.Goto},
 		{m.TableListFilter, m.QueryLog, m.Refresh, m.TableInfo, m.Help, m.Quit},

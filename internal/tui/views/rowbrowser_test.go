@@ -11,20 +11,28 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func makeResult(page, totalPages int, totalRows int64, cols []db.Column, rows []map[string]any) *dataset.QueryResult {
+// makeResult builds a QueryResult for tests. HasMore is derived from page < totalPages.
+// TotalRows and TotalPages are nil (SkipCount semantics). totalRows parameter is unused
+// but kept for readability at call sites that describe the logical dataset size.
+func makeResult(page, totalPages int, _ int64, cols []db.Column, rows []map[string]any) *dataset.QueryResult {
+	hasMore := page < totalPages
 	return &dataset.QueryResult{
-		Columns:    cols,
-		Rows:       rows,
-		TotalRows:  totalRows,
-		Page:       page,
-		PageSize:   50,
-		TotalPages: totalPages,
+		Columns:  cols,
+		Rows:     rows,
+		Page:     page,
+		PageSize: 50,
+		HasMore:  hasMore,
 	}
+}
+
+
+func newModel(ds dataset.Dataset) views.RowBrowserModel {
+	return views.NewRowBrowserModel(keys.Default(), nil, nil, ds, nil)
 }
 
 func TestRowBrowserModel_StartsLoading(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	if !m.IsLoading() {
 		t.Error("expected loading state initially")
 	}
@@ -32,8 +40,9 @@ func TestRowBrowserModel_StartsLoading(t *testing.T) {
 
 func TestRowBrowserModel_RowsLoaded(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 
+	// HasMore=true on page 1 of 3 — totals are not yet known.
 	result := makeResult(1, 3, 150,
 		[]db.Column{{Name: "id"}, {Name: "name"}},
 		[]map[string]any{
@@ -49,17 +58,39 @@ func TestRowBrowserModel_RowsLoaded(t *testing.T) {
 	if m.Page() != 1 {
 		t.Errorf("expected page 1, got %d", m.Page())
 	}
-	if m.TotalPages() != 3 {
-		t.Errorf("expected 3 total pages, got %d", m.TotalPages())
+	// Totals are unknown until end-of-data is discovered.
+	if _, ok := m.TotalPages(); ok {
+		t.Error("TotalPages should not be known when HasMore=true")
 	}
-	if m.TotalRows() != 150 {
-		t.Errorf("expected 150 total rows, got %d", m.TotalRows())
+	if _, ok := m.TotalRows(); ok {
+		t.Error("TotalRows should not be known when HasMore=true")
+	}
+}
+
+func TestRowBrowserModel_RowsLoaded_LastPage_DiscoversTotal(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+
+	// HasMore=false on page 3 — totals are inferred.
+	rows := []map[string]any{{"id": int64(1)}, {"id": int64(2)}}
+	result := makeResult(3, 3, 0,
+		[]db.Column{{Name: "id"}},
+		rows,
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	if tp, ok := m.TotalPages(); !ok || tp != 3 {
+		t.Errorf("expected TotalPages=3, got %d (ok=%v)", tp, ok)
+	}
+	// Inferred: (3-1)*50 + 2 = 102
+	if tr, ok := m.TotalRows(); !ok || tr != 102 {
+		t.Errorf("expected TotalRows=102, got %d (ok=%v)", tr, ok)
 	}
 }
 
 func TestRowBrowserModel_NextPage(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 
 	result := makeResult(1, 3, 150,
@@ -87,7 +118,7 @@ func TestRowBrowserModel_NextPage(t *testing.T) {
 
 func TestRowBrowserModel_PrevPage(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 
 	result := makeResult(2, 3, 150,
 		[]db.Column{{Name: "id"}},
@@ -104,21 +135,22 @@ func TestRowBrowserModel_PrevPage(t *testing.T) {
 
 func TestRowBrowserModel_NextPageAtLastPage(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 
+	// HasMore=false means this is the last page.
 	result := makeResult(3, 3, 150, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
 	// Press ] on last page — should not trigger loading
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
 	if m.IsLoading() {
-		t.Error("should not load when already on last page")
+		t.Error("should not load when already on last page (HasMore=false)")
 	}
 }
 
 func TestRowBrowserModel_PrevPageAtFirstPage(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 
 	result := makeResult(1, 3, 150, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
@@ -138,7 +170,7 @@ func TestRowBrowserModel_HorizontalScroll(t *testing.T) {
 
 	// Narrow window (width=0): only 1 column fits, so cursor and scroll move together.
 	t.Run("narrow", func(t *testing.T) {
-		m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+		m := newModel(ds)
 		m, _ = m.Update(views.RowsLoadedMsg(result))
 
 		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
@@ -160,7 +192,7 @@ func TestRowBrowserModel_HorizontalScroll(t *testing.T) {
 
 	// Wide window (all columns visible): cursor moves without scrolling colOffset.
 	t.Run("wide", func(t *testing.T) {
-		m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+		m := newModel(ds)
 		m, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 30})
 		m, _ = m.Update(views.RowsLoadedMsg(result))
 
@@ -181,27 +213,98 @@ func TestRowBrowserModel_HorizontalScroll(t *testing.T) {
 	})
 }
 
-func TestRowBrowserModel_StatusLine(t *testing.T) {
-	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+// --- Status bar tests ---
 
-	result := makeResult(2, 5, 230,
-		[]db.Column{{Name: "id"}},
-		nil,
-	)
+func TestRowBrowserModel_StatusLine_TotalUnknown(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+
+	// Page 2 with more pages ahead — total unknown.
+	result := makeResult(2, 5, 0, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
 	sl := m.StatusLine()
-	for _, want := range []string{"users", "2", "5", "230"} {
-		if !strings.Contains(sl, want) {
-			t.Errorf("StatusLine %q missing %q", sl, want)
-		}
+	if !strings.Contains(sl, "users") {
+		t.Errorf("StatusLine %q missing dataset name", sl)
+	}
+	if !strings.Contains(sl, "page 2") {
+		t.Errorf("StatusLine %q missing page number", sl)
+	}
+	// Total must NOT appear.
+	if strings.Contains(sl, "/") {
+		t.Errorf("StatusLine %q must not show total pages when unknown", sl)
+	}
+}
+
+func TestRowBrowserModel_StatusLine_TotalInferred(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+
+	// HasMore=false on page 3 — totals are inferred (tilde).
+	rows := []map[string]any{{"id": 1}, {"id": 2}}
+	result := makeResult(3, 3, 0, []db.Column{{Name: "id"}}, rows)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	sl := m.StatusLine()
+	if !strings.Contains(sl, "page 3/3") {
+		t.Errorf("StatusLine %q missing page 3/3", sl)
+	}
+	if !strings.Contains(sl, "~") {
+		t.Errorf("StatusLine %q missing tilde for inferred total", sl)
+	}
+	// Inferred: (3-1)*50 + 2 = 102
+	if !strings.Contains(sl, "102") {
+		t.Errorf("StatusLine %q missing inferred row count 102", sl)
+	}
+}
+
+func TestRowBrowserModel_StatusLine_TotalExact(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+
+	// Inject an exact-count result (simulating countLoadedMsg arriving).
+	tp := 5
+	tr := int64(247)
+	countResult := &dataset.QueryResult{
+		Page:       1,
+		PageSize:   50,
+		TotalRows:  &tr,
+		TotalPages: &tp,
+	}
+	m, _ = m.Update(views.CountLoadedMsgForTest(countResult))
+	// After count, model loads the last page. Inject that page result.
+	pageResult := makeResult(5, 5, 0, []db.Column{{Name: "id"}}, []map[string]any{{"id": 1}})
+	m, _ = m.Update(views.RowsLoadedMsg(pageResult))
+
+	sl := m.StatusLine()
+	if !strings.Contains(sl, "page 5/5") {
+		t.Errorf("StatusLine %q missing page 5/5", sl)
+	}
+	if strings.Contains(sl, "~") {
+		t.Errorf("StatusLine %q must not have tilde for exact total", sl)
+	}
+	if !strings.Contains(sl, "247") {
+		t.Errorf("StatusLine %q missing exact row count 247", sl)
+	}
+}
+
+func TestRowBrowserModel_StatusLine_FindingLastPage(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	result := makeResult(1, 3, 0, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Press G — sets "Finding last page..." status.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	sl := m.StatusLine()
+	if !strings.Contains(sl, "Finding last page") {
+		t.Errorf("StatusLine %q should show 'Finding last page...' after G", sl)
 	}
 }
 
 func TestRowBrowserModel_View(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 
 	result := makeResult(1, 1, 2,
@@ -233,11 +336,158 @@ func TestRowBrowserModel_View(t *testing.T) {
 	}
 }
 
+// --- Page size input tests ---
+
+func TestRowBrowserModel_PageSizeInput_Open(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	if !m.IsPageSizeInputOpen() {
+		t.Error("expected page size input open after 'P'")
+	}
+}
+
+func TestRowBrowserModel_PageSizeInput_EscCloses(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.IsPageSizeInputOpen() {
+		t.Error("expected page size input closed after Esc")
+	}
+}
+
+func TestRowBrowserModel_PageSizeInput_ValidValue_TriggersLoad(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	reg := views.NewPageSizeRegistry(50)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg)
+	result := makeResult(1, 3, 0, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	// Clear pre-filled value ("50") then type new value.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	for _, r := range "25" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.IsPageSizeInputOpen() {
+		t.Error("page size input should be closed after valid Enter")
+	}
+	if reg.Get("users") != 25 {
+		t.Errorf("registry should have page size 25 for 'users', got %d", reg.Get("users"))
+	}
+}
+
+func TestRowBrowserModel_PageSizeInput_InvalidValue_ShowsError(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	// Clear the pre-filled value ("50") and type "0" (invalid).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.IsPageSizeInputOpen() {
+		t.Error("page size input should remain open after invalid value")
+	}
+	v := m.View()
+	if !strings.Contains(v, "must be between") {
+		t.Errorf("view should show error message, got: %q", v)
+	}
+}
+
+func TestRowBrowserModel_PageSizeInput_NonDigitDropped(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	reg := views.NewPageSizeRegistry(50)
+	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds, reg)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	// Type 'a' — should be silently dropped.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if !m.IsPageSizeInputOpen() {
+		t.Error("page size input must remain open after non-digit")
+	}
+}
+
+func TestRowBrowserModel_PageSizeInput_ViewRendered(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	v := m.View()
+	if !strings.Contains(v, "Page size:") {
+		t.Errorf("view should show 'Page size:' bar when P pressed, got:\n%s", v)
+	}
+}
+
+// --- First/last page ---
+
+func TestRowBrowserModel_FirstPage_g(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+
+	result := makeResult(3, 5, 0, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Press g — should load page 1.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if !m.IsLoading() {
+		t.Error("expected loading after 'g' (first page)")
+	}
+}
+
+func TestRowBrowserModel_FirstPage_Home(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+
+	result := makeResult(3, 5, 0, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	if !m.IsLoading() {
+		t.Error("expected loading after Home key (first page)")
+	}
+}
+
+func TestRowBrowserModel_LastPage_G_SetsStatus(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+
+	result := makeResult(1, 5, 0, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	sl := m.StatusLine()
+	if !strings.Contains(sl, "Finding last page") {
+		t.Errorf("after G, status should show 'Finding last page...', got: %q", sl)
+	}
+}
+
 // --- Filter modal tests ---
 
 func TestRowBrowserModel_FilterModal_Open(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
@@ -249,7 +499,7 @@ func TestRowBrowserModel_FilterModal_Open(t *testing.T) {
 
 func TestRowBrowserModel_FilterModal_Cancel(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
@@ -262,7 +512,7 @@ func TestRowBrowserModel_FilterModal_Cancel(t *testing.T) {
 
 func TestRowBrowserModel_FilterModal_Apply(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
@@ -278,7 +528,7 @@ func TestRowBrowserModel_FilterModal_Apply(t *testing.T) {
 
 func TestRowBrowserModel_LocalSearch_Open(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
@@ -290,7 +540,7 @@ func TestRowBrowserModel_LocalSearch_Open(t *testing.T) {
 
 func TestRowBrowserModel_LocalSearch_CloseWithEsc(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
@@ -303,7 +553,7 @@ func TestRowBrowserModel_LocalSearch_CloseWithEsc(t *testing.T) {
 
 func TestRowBrowserModel_LocalSearch_FilteredView(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	result := makeResult(1, 1, 3,
 		[]db.Column{{Name: "name"}},
@@ -347,7 +597,7 @@ func TestRowBrowserModel_LocalSearch_FilteredView(t *testing.T) {
 
 func TestRowBrowserModel_QuickFilter_Open(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1,
 		[]db.Column{{Name: "id"}, {Name: "name"}},
 		[]map[string]any{{"id": int64(1), "name": "Alice"}},
@@ -364,7 +614,7 @@ func TestRowBrowserModel_QuickFilter_Open(t *testing.T) {
 
 func TestRowBrowserModel_Sort_Cycle(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 2,
 		[]db.Column{{Name: "id"}, {Name: "name"}},
 		[]map[string]any{{"id": int64(1), "name": "Alice"}},
@@ -398,7 +648,7 @@ func TestRowBrowserModel_Sort_Cycle(t *testing.T) {
 
 func TestRowBrowserModel_Sort_ViewIndicator(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	result := makeResult(1, 1, 1,
 		[]db.Column{{Name: "id"}},
@@ -415,7 +665,7 @@ func TestRowBrowserModel_Sort_ViewIndicator(t *testing.T) {
 
 func TestRowBrowserModel_Sort_StatusLine(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1,
 		[]db.Column{{Name: "price"}},
 		[]map[string]any{{"price": 9.99}},
@@ -429,11 +679,30 @@ func TestRowBrowserModel_Sort_StatusLine(t *testing.T) {
 	}
 }
 
+func TestRowBrowserModel_Sort_ClearsTotalOnChange(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+
+	// Load last page (infers total).
+	result := makeResult(3, 3, 0, []db.Column{{Name: "id"}}, []map[string]any{{"id": 1}})
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	if _, ok := m.TotalPages(); !ok {
+		t.Fatal("expected TotalPages to be known after last page")
+	}
+
+	// Sort change must clear the discovered total.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if _, ok := m.TotalPages(); ok {
+		t.Error("TotalPages should be cleared after sort change")
+	}
+}
+
 // --- Export menu test ---
 
 func TestRowBrowserModel_ExportMenu_Open(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
@@ -451,7 +720,7 @@ func TestRowBrowserModel_ExportMenu_Open(t *testing.T) {
 
 func TestRowBrowserModel_NeedsBackKey(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
@@ -465,11 +734,23 @@ func TestRowBrowserModel_NeedsBackKey(t *testing.T) {
 	}
 }
 
+func TestRowBrowserModel_NeedsBackKey_PageSizeInput(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	if !m.NeedsBackKey() {
+		t.Error("NeedsBackKey should be true when page size input is open")
+	}
+}
+
 // --- FK drill-down tests ---
 
 func TestRowBrowserModel_RowCursor_Down(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 2,
 		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
 		[]map[string]any{
@@ -497,7 +778,7 @@ func TestRowBrowserModel_RowCursor_Down(t *testing.T) {
 
 func TestRowBrowserModel_RowCursor_Up(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 2,
 		[]db.Column{{Name: "id"}},
 		[]map[string]any{{"id": int64(1)}, {"id": int64(2)}},
@@ -519,7 +800,7 @@ func TestRowBrowserModel_RowCursor_Up(t *testing.T) {
 
 func TestRowBrowserModel_FKsLoaded(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 
 	fks := []db.ForeignKey{
 		{Column: "customer_id", ReferencedTable: "customers", ReferencedColumn: "id"},
@@ -536,7 +817,7 @@ func TestRowBrowserModel_FKsLoaded(t *testing.T) {
 
 func TestRowBrowserModel_DrillDown_OnFKCell(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1,
 		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
 		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
@@ -562,7 +843,7 @@ func TestRowBrowserModel_DrillDown_OnFKCell(t *testing.T) {
 
 func TestRowBrowserModel_DrillDown_OnNonFKCell(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1,
 		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
 		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
@@ -585,7 +866,7 @@ func TestRowBrowserModel_DrillDown_OnNonFKCell(t *testing.T) {
 
 func TestRowBrowserModel_DrillDown_NullFKCell(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1,
 		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
 		[]map[string]any{{"id": int64(42), "customer_id": nil}},
@@ -605,7 +886,7 @@ func TestRowBrowserModel_DrillDown_NullFKCell(t *testing.T) {
 
 func TestRowBrowserModel_PopDrillStack(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1,
 		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
 		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
@@ -635,7 +916,7 @@ func TestRowBrowserModel_PopDrillStack(t *testing.T) {
 
 func TestRowBrowserModel_NeedsBackKey_WithDrillStack(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1,
 		[]db.Column{{Name: "id"}, {Name: "customer_id"}},
 		[]map[string]any{{"id": int64(42), "customer_id": int64(1001)}},
@@ -655,7 +936,7 @@ func TestRowBrowserModel_NeedsBackKey_WithDrillStack(t *testing.T) {
 
 func TestRowBrowserModel_DrillStack_Rendering(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	result := makeResult(1, 1, 1,
@@ -692,7 +973,7 @@ func TestRowBrowserModel_DrillStack_Rendering(t *testing.T) {
 
 func TestRowBrowserModel_DrillDown_MultiLevel(t *testing.T) {
 	ds := dataset.Dataset{Name: "orders", Table: "orders"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 60})
 
 	result := makeResult(1, 1, 1,
@@ -743,7 +1024,7 @@ func TestRowBrowserModel_DrillDown_MultiLevel(t *testing.T) {
 func TestRowBrowserModel_DrillDown_CompositeFKGraceful(t *testing.T) {
 	// Two FK columns on the same table — should drill on the selected one without crashing.
 	ds := dataset.Dataset{Name: "order_items", Table: "order_items"}
-	m := views.NewRowBrowserModel(keys.Default(), nil, nil, ds)
+	m := newModel(ds)
 	result := makeResult(1, 1, 1,
 		[]db.Column{{Name: "order_id"}, {Name: "product_id"}},
 		[]map[string]any{{"order_id": int64(1), "product_id": int64(2)}},

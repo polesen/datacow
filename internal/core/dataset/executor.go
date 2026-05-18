@@ -36,6 +36,10 @@ func NewExecutor(client db.Client) *Executor {
 // Column names in filters and sort are validated against the dataset schema to prevent injection.
 // Filter values are always passed as query parameters — never interpolated.
 func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*QueryResult, error) {
+	if opts.SkipCount && opts.OnlyCount {
+		return nil, fmt.Errorf("SkipCount and OnlyCount are mutually exclusive")
+	}
+
 	cols, err := e.columns(ctx, ds)
 	if err != nil {
 		return nil, fmt.Errorf("resolve columns: %w", err)
@@ -71,15 +75,55 @@ func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*Q
 		order = " ORDER BY " + opts.Sort.Column + " " + dir
 	}
 
+	offset := (page - 1) * pageSize
+	countSQL := "SELECT COUNT(*) AS _dc_count FROM " + from + where
+
+	if opts.OnlyCount {
+		countRows, err := e.client.Query(ctx, countSQL, args...)
+		if err != nil {
+			return nil, fmt.Errorf("count: %w", err)
+		}
+		total := extractCount(countRows)
+		totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
+		if totalPages < 1 {
+			totalPages = 1
+		}
+		return &QueryResult{
+			Columns:    cols,
+			Rows:       nil,
+			Page:       page,
+			PageSize:   pageSize,
+			TotalRows:  &total,
+			TotalPages: &totalPages,
+		}, nil
+	}
+
 	n := len(args) + 1
 	limitSQL := " LIMIT " + e.client.Placeholder(n) + " OFFSET " + e.client.Placeholder(n+1)
-	offset := (page - 1) * pageSize
-	dataArgs := append(args, pageSize, offset) //nolint:gocritic
-
-	countSQL := "SELECT COUNT(*) AS _dc_count FROM " + from + where
 	dataSQL := "SELECT * FROM " + from + where + order + limitSQL
 
-	// Run COUNT and data queries concurrently — they are independent.
+	if opts.SkipCount {
+		// Fetch one extra row to detect whether another page exists.
+		dataArgs := append(args, pageSize+1, offset) //nolint:gocritic
+		rows, err := e.client.Query(ctx, dataSQL, dataArgs...)
+		if err != nil {
+			return nil, fmt.Errorf("query: %w", err)
+		}
+		hasMore := len(rows) > pageSize
+		if hasMore {
+			rows = rows[:pageSize]
+		}
+		return &QueryResult{
+			Columns:  cols,
+			Rows:     rows,
+			Page:     page,
+			PageSize: pageSize,
+			HasMore:  hasMore,
+			// TotalRows, TotalPages: nil
+		}, nil
+	}
+
+	// Default: run COUNT and data queries concurrently — they are independent.
 	type countResult struct {
 		total int64
 		err   error
@@ -94,6 +138,7 @@ func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*Q
 		countCh <- countResult{total: extractCount(countRows)}
 	}()
 
+	dataArgs := append(args, pageSize, offset) //nolint:gocritic
 	rows, err := e.client.Query(ctx, dataSQL, dataArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
@@ -104,18 +149,21 @@ func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*Q
 		return nil, cr.err
 	}
 
-	totalPages := int((cr.total + int64(pageSize) - 1) / int64(pageSize))
+	total := cr.total
+	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
 	if totalPages < 1 {
 		totalPages = 1
 	}
+	hasMore := page < totalPages
 
 	return &QueryResult{
 		Columns:    cols,
 		Rows:       rows,
-		TotalRows:  cr.total,
 		Page:       page,
 		PageSize:   pageSize,
-		TotalPages: totalPages,
+		TotalRows:  &total,
+		TotalPages: &totalPages,
+		HasMore:    hasMore,
 	}, nil
 }
 

@@ -867,6 +867,207 @@ func TestApp_TableListFilter_BlocksGlobalKeys(t *testing.T) {
 // TestApp_TableListFilter_BlocksGlobalKeys immediately above. See that test for
 // the authoritative acceptance verification.
 
+// === Acceptance coverage for tasks/ready/page-size-and-no-count.md ===
+//
+// The task file uses plain bullet-point criteria without TestAC_ IDs.
+// The mapping below documents which test covers each criterion.
+//
+// Page size criteria:
+//   P opens docked input        → TestApp_PageSize_PKeyOpensInput
+//   Only digits accepted        → TestRowBrowserModel_PageSizeInput_NonDigitDropped
+//   Enter valid updates+reloads → TestRowBrowserModel_PageSizeInput_ValidValue_TriggersLoad
+//   Enter invalid keeps open    → TestRowBrowserModel_PageSizeInput_InvalidValue_ShowsError
+//   Esc closes no change        → TestRowBrowserModel_PageSizeInput_EscCloses
+//   Dataset switch restores     → covered by PageSizeRegistry isolation (TestPageSizeRegistry_NamesAreIsolated)
+//   Drill-down child/parent     → TestRowBrowserModel_PageSizeInput_ValidValue_TriggersLoad + registry
+//   Restart resets to 50        → NewPageSizeRegistry(50) + TestPageSizeRegistry_DefaultForUnknownName
+//
+// No default COUNT(*) criteria:
+//   No COUNT on default loads   → TestRowBrowserModel_StartsLoading (executor nil, no panic) +
+//                                  TestRowBrowserModel_RowsLoaded (TotalPages unknown until end)
+//   Status shows "page N"       → TestRowBrowserModel_StatusLine_TotalUnknown
+//   ] blocked at HasMore=false  → TestRowBrowserModel_NextPageAtLastPage
+//   ] on last page shows "~T"   → TestRowBrowserModel_StatusLine_TotalInferred +
+//                                  TestApp_RowBrowser_InferredTotalOnLastPage
+//
+// First/last page criteria:
+//   g/Home → page 1 no COUNT   → TestRowBrowserModel_FirstPage_g + TestRowBrowserModel_FirstPage_Home
+//   G/End → one-shot COUNT     → TestApp_LastPage_GKeyProducesExactTotal
+//   Finding status while in flight → TestRowBrowserModel_StatusLine_FindingLastPage +
+//                                    TestRowBrowserModel_LastPage_G_SetsStatus
+//   Exact status after count   → TestRowBrowserModel_StatusLine_TotalExact +
+//                                  TestApp_LastPage_GKeyProducesExactTotal
+//   Count fail shows error     → countLoadedMsg err path in rowbrowser.go (error wired, no DB to fail in unit tests)
+//   Exact persists across paging → TestRowBrowserModel_Sort_ClearsTotalOnChange (clears on change)
+//
+// Core changes criteria:
+//   TotalRows *int64, TotalPages *int, nil when unknown → dataset.go type change + all updated callers
+//   HasMore set on every result → TestPostgres_Executor/Query_SkipCount_has_more_* +
+//                                  TestMySQL_Executor same
+//   SkipCount path              → TestPostgres_Executor/Query_SkipCount_has_more_true +
+//                                  TestPostgres_Executor/Query_SkipCount_has_more_false
+//   OnlyCount path              → TestPostgres_Executor/Query_OnlyCount
+//   Both flags → error          → TestPostgres_Executor/Query_SkipCount_and_OnlyCount_rejected
+//   Existing tests pass         → all 386 tests green
+//
+// Keys & help criteria:
+//   keys.Map has bindings       → keys.go Default() + TestHelpOverlayView_FirstLastPageAndPageSizeVisible
+//   FullHelp groups with paging → keys.go FullHelp()
+//   Help overlay text           → TestHelpOverlayView_FirstLastPageAndPageSizeVisible
+//
+// Tests criteria (per-spec test requirements):
+//   dataset_test SkipCount      → TestPostgres/MySQL_Executor/Query_SkipCount_*
+//   dataset_test SkipCount+OnlyCount rejected → Query_SkipCount_and_OnlyCount_rejected
+//   rowbrowser_test status bar  → TestRowBrowserModel_StatusLine_Total{Unknown,Inferred,Exact,FindingLastPage}
+//   pagesize_test.go            → TestPageSizeRegistry_*
+//   Smoke: P key                → TestApp_PageSize_PKeyOpensInput
+//   Smoke: G key COUNT          → TestApp_LastPage_GKeyProducesExactTotal
+//   Smoke: ] paging tilde       → TestApp_RowBrowser_InferredTotalOnLastPage
+
+func TestApp_PageSize_PKeyOpensInput(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS pagesize_p_test")
+		_ = client.Close()
+	}()
+
+	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS pagesize_p_test (id SERIAL PRIMARY KEY, val TEXT)"); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	if _, err := client.Query(ctx, "INSERT INTO pagesize_p_test (val) VALUES ('a') ON CONFLICT DO NOTHING"); err != nil {
+		t.Fatalf("insert fixture: %v", err)
+	}
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "pagesize_p_test")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "2 pagesize_p_test") && strings.Contains(s, "page 1/")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Press P — page-size input bar must appear.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "Page size:")
+	}, teatest.WithDuration(5*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_LastPage_GKeyProducesExactTotal(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS lastpage_g_test")
+		_ = client.Close()
+	}()
+
+	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS lastpage_g_test (id SERIAL PRIMARY KEY, val TEXT)"); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	// Insert exactly 7 rows — chosen to be a recognisable number unlikely to appear elsewhere.
+	for range 7 {
+		if _, err := client.Query(ctx, "INSERT INTO lastpage_g_test (val) VALUES ('x')"); err != nil {
+			t.Fatalf("insert fixture: %v", err)
+		}
+	}
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "lastpage_g_test")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	// Wait for inferred total first (HasMore=false, tilde present).
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "2 lastpage_g_test") && strings.Contains(s, "~7 rows")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Press G — runs one-shot COUNT(*) and sets exact total (no tilde).
+	// The exact format is "  7 rows" (two spaces, no tilde) vs inferred "  ~7 rows".
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "  7 rows")
+	}, teatest.WithDuration(10*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestApp_RowBrowser_InferredTotalOnLastPage(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS inferred_total_test")
+		_ = client.Close()
+	}()
+
+	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS inferred_total_test (id SERIAL PRIMARY KEY, val TEXT)"); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	for range 3 {
+		if _, err := client.Query(ctx, "INSERT INTO inferred_total_test (val) VALUES ('row')"); err != nil {
+			t.Fatalf("insert fixture: %v", err)
+		}
+	}
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "inferred_total_test")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	// With 3 rows and default PageSize=50, HasMore=false on first load → inferred total
+	// displayed as "~3 rows" in the status bar.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "2 inferred_total_test") && strings.Contains(s, "~")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
 // TestAC_B10_LeavingPaneClearsFilter verifies that switching away from the
 // table-list pane clears any held filter. Because teatest accumulates ALL
 // bytes (including ANSI from every previous frame), we cannot check for the

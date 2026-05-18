@@ -109,6 +109,7 @@ type App struct {
 	activeClient        db.Client
 	activeResolver      *dataset.Resolver
 	cacheInitCmd        tea.Cmd
+	pageSizeRegistry    *views.PageSizeRegistry
 }
 
 // New creates a ready-to-run App.
@@ -160,6 +161,7 @@ func (a *App) activateConnection(name string, client db.Client) tea.Cmd {
 	a.executor = executor
 	a.exporter = export.NewExporter(executor)
 	a.schemaCache = schema.NewCache()
+	a.pageSizeRegistry = views.NewPageSizeRegistry(50)
 	a.tableList = views.NewTableListModel(a.keys, resolver, executor, lc, a.schemaCache)
 	a.sqlPane = views.NewSQLPaneModel(a.keys, queryLog)
 	a.rowBrowserReady = false
@@ -546,7 +548,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !inModalInput && a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 				if ds := a.tableList.SelectedDataset(); ds != nil {
 					a.tableList = a.tableList.ClearFilter()
-					a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds)
+					a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds, a.pageSizeRegistry)
 					sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 					a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
 					a.rowBrowserReady = true
@@ -624,7 +626,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Dataset != nil {
 			a.tableList = a.tableList.ClearFilter()
 			a.tableList, _ = a.tableList.SelectByName(msg.Dataset.Name)
-			a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *msg.Dataset)
+			a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *msg.Dataset, a.pageSizeRegistry)
 			sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 			a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
 			a.rowBrowserReady = true

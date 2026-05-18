@@ -47,6 +47,8 @@ func (v *HelpOverlayView) View() string {
 				v.keys.Left, v.keys.Right,
 				v.keys.Enter, v.keys.Back,
 				v.keys.PrevPage, v.keys.NextPage,
+				v.keys.FirstPage, v.keys.LastPage,
+				v.keys.PageSize,
 			},
 		},
 		{
