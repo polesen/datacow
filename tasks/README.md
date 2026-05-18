@@ -12,11 +12,8 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ./tasks/run-task.sh ready/<task>.md
 ```
 
-- [Filter / Search Redesign](ready/filter-search-redesign.md)
-- [Fix: Shift+Tab Reverse Focus](ready/fix-shift-tab-reverse-focus.md)
-- [Reverse FK Drill-Down](ready/reverse-fk-drilldown.md)
-- [Row Browser: Per-Dataset Page Size, No Default COUNT(\*)](ready/page-size-and-no-count.md)
-- [Table List Filter Search](ready/tablelist-filter-search.md)
+- [Filter Bar Visibility — Tables Pane](ready/tablelist-filter-bar-visibility.md)
+- [Column Picker — Select and Reorder Visible Columns](ready/column-picker.md)
 
 ## Done
 
@@ -33,6 +30,11 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 - [Multi-Datasource TUI](done/multi-datasource.md)
 - [Schema Explorer Tree](done/schema-explorer.md)
 - [Cell Viewer + Save to File](done/cell-viewer.md)
+- [Filter / Search Redesign](done/filter-search-redesign.md)
+- [Fix: Shift+Tab Reverse Focus](done/fix-shift-tab-reverse-focus.md)
+- [Reverse FK Drill-Down](done/reverse-fk-drilldown.md)
+- [Row Browser: Per-Dataset Page Size, No Default COUNT(\*)](done/page-size-and-no-count.md)
+- [Table List Filter Search](done/tablelist-filter-search.md)
 
 ## Future Work
 
