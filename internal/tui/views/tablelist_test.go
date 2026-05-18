@@ -705,6 +705,121 @@ func TestTableListFilter_SubMatchDoesNotAutoExpand(t *testing.T) {
 	}
 }
 
+// ---- Filter bar visibility tests -------------------------------------------
+
+func TestTableListFilter_HeldFilterFooterVisible(t *testing.T) {
+	// After Enter (held filter), the pane should show a footer with the query.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "ord")
+	m, _ = pressEnter(m)
+
+	if m.FilterInputActive() {
+		t.Fatal("filter input should be closed after Enter")
+	}
+	if !m.FilterActive() {
+		t.Fatal("filter should be held after Enter")
+	}
+
+	v := m.View()
+	// Footer must contain the query and the match/total count.
+	if !strings.Contains(v, `"ord"`) {
+		t.Errorf("held-filter footer must show query, got:\n%s", v)
+	}
+	if !strings.Contains(v, "1/2") {
+		t.Errorf("held-filter footer must show match count, got:\n%s", v)
+	}
+	// Footer must contain edit and clear hints.
+	if !strings.Contains(v, "edit") {
+		t.Errorf("held-filter footer must contain 'edit' hint, got:\n%s", v)
+	}
+	if !strings.Contains(v, "clear") {
+		t.Errorf("held-filter footer must contain 'clear' hint, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_FooterAbsentWhenNoFilter(t *testing.T) {
+	// When no filter is active the footer line must not be rendered.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	v := m.View()
+	// The held-filter marker strings must not appear.
+	if strings.Contains(v, "esc clear") {
+		t.Errorf("footer should be absent when no filter active, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_InputOpenFooterVisible(t *testing.T) {
+	// When the filter input is open, the footer must contain the text input prompt.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	v := m.View()
+	if !strings.Contains(v, "/") {
+		t.Errorf("filter input footer should be visible when input is open, got:\n%s", v)
+	}
+	// The held-filter hints should not appear while the input is open.
+	if strings.Contains(v, "esc clear") {
+		t.Errorf("held-filter hints should not appear while input is open, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_FlashToggle(t *testing.T) {
+	// Pressing Enter sets filterFlashing; receiving filterFlashExpiredMsg clears it.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "us")
+	m, _ = pressEnter(m)
+
+	// After Enter the flash should be active — the view returns regardless,
+	// but we verify that the flash expires correctly.
+	m, _ = m.Update(views.FilterFlashExpiredMsgForTest())
+	v := m.View()
+	// After expiry the footer is still present (held filter) but not flashing.
+	if !strings.Contains(v, `"us"`) {
+		t.Errorf("held-filter footer should still be visible after flash expires, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_OnFocusGainedWithFilter(t *testing.T) {
+	// OnFocusGained with an active filter should set flashing and return a cmd.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "us")
+	m, _ = pressEnter(m)
+
+	m2, cmd := m.OnFocusGained()
+	if cmd == nil {
+		t.Error("OnFocusGained with active filter should return a tick cmd")
+	}
+	// Sending the flash-expired message should clear the flash.
+	m2, _ = m2.Update(views.FilterFlashExpiredMsgForTest())
+	v := m2.View()
+	if !strings.Contains(v, `"us"`) {
+		t.Errorf("footer should still be visible after flash expires, got:\n%s", v)
+	}
+}
+
+func TestTableListFilter_OnFocusGainedNoFilter(t *testing.T) {
+	// OnFocusGained with no active filter should return nil cmd.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	_, cmd := m.OnFocusGained()
+	if cmd != nil {
+		t.Error("OnFocusGained without active filter should return nil cmd")
+	}
+}
+
 func TestTableListFilter_NavigationWhileInputOpen(t *testing.T) {
 	// Up/Down arrow keys should navigate the filtered list even while the filter
 	// input is still open, without requiring the user to press Enter first.

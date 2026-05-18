@@ -184,3 +184,16 @@ var GotoMatch = lipgloss.NewStyle().Foreground(colorKey).Bold(true)
 
 // SearchHighlight styles matching substrings in the table list inline filter.
 var SearchHighlight = lipgloss.NewStyle().Foreground(colorKey).Bold(true)
+
+// FilterBarHeld styles the read-only held-filter footer in the tables pane.
+var FilterBarHeld = lipgloss.NewStyle().
+	Foreground(lipgloss.AdaptiveColor{Dark: "#1A1B26", Light: "#1A1B26"}).
+	Background(lipgloss.AdaptiveColor{Dark: "#E0AF68", Light: "#B8670A"}).
+	Padding(0, 1)
+
+// FilterBarFlash styles the held-filter footer during its 400ms attention flash.
+var FilterBarFlash = lipgloss.NewStyle().
+	Foreground(lipgloss.AdaptiveColor{Dark: "#1A1B26", Light: "#1A1B26"}).
+	Background(lipgloss.AdaptiveColor{Dark: "#FF9E64", Light: "#FF9E64"}).
+	Bold(true).
+	Padding(0, 1)

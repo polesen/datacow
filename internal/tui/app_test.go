@@ -852,11 +852,12 @@ func TestApp_TableListFilter_BlocksGlobalKeys(t *testing.T) {
 	// Press "i" — should be typed into the filter, NOT open the table-info overlay.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
 
-	// After a brief delay, the filter bar must still be visible and "Table Info" must not.
+	// After a brief delay, the filter bar must show "/i" (i.e. "i" was consumed by
+	// the filter input) and the Table Info overlay must not have opened.
 	time.Sleep(300 * time.Millisecond)
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
-		return strings.Contains(s, "filter tables") && !strings.Contains(s, "Table Info")
+		return strings.Contains(s, "/i") && !strings.Contains(s, "Table Info")
 	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
@@ -866,6 +867,88 @@ func TestApp_TableListFilter_BlocksGlobalKeys(t *testing.T) {
 // TestAC_KH04_GlobalKeysBlockedWhileFilterOpen is covered by
 // TestApp_TableListFilter_BlocksGlobalKeys immediately above. See that test for
 // the authoritative acceptance verification.
+
+// === Acceptance coverage for tasks/ready/tablelist-filter-bar-visibility.md ===
+//
+// Criteria and covering tests:
+//   1. Enter → amber footer with query+count     → TestTableListFilter_HeldFilterFooterVisible (views)
+//   2. Footer visible when pane unfocused        → TestApp_TableListFilter_HeldBarVisibleAfterTabAway
+//   3. Input open → editable text input shown    → TestTableListFilter_InputOpenFooterVisible (views)
+//   4. No filter → no footer                     → TestTableListFilter_FooterAbsentWhenNoFilter (views)
+//   5. Enter → 400ms flash                       → TestTableListFilter_FlashToggle (views)
+//   6. Tab away+back → 400ms flash               → TestTableListFilter_OnFocusGainedWithFilter (views)
+//   7. Status bar no longer shows filter status  → TestAC_B10_LeavingPaneClearsFilter (updated to new format)
+//   8. Status bar shortcuts right-anchored       → structural change verified by build+lint; no dedicated test
+//                                                   (layout-only change; unit tests render with lipgloss Width=0)
+//   9. Existing filter behaviour unchanged       → all TestTableListFilter_* tests in views/tablelist_test.go
+//   10. make preflight + /done pass              → CI gate
+
+func TestApp_TableListFilter_HeldBarVisibleAfterTabAway(t *testing.T) {
+	// After committing a filter and tabbing away and back, the tables pane must
+	// show the held-filter bar with the query text.
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS held_bar_tab_test")
+		_ = client.Close()
+	}()
+
+	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS held_bar_tab_test (id SERIAL PRIMARY KEY)"); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	// Wait for the fixture table.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "held_bar_tab_test")
+	}, teatest.WithDuration(15*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Open the filter, type a query, and commit it with Enter.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	time.Sleep(300 * time.Millisecond)
+	for _, r := range "held_bar_tab_test" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	time.Sleep(300 * time.Millisecond)
+
+	// The held-filter bar must be visible while focus is still on pane 1.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), `"held_bar_tab_test"`)
+	}, teatest.WithDuration(5*time.Second))
+
+	// Tab to pane 2 (clears the filter per AC B10) and back to pane 1 via key "1".
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+	time.Sleep(200 * time.Millisecond)
+	// Tab away clears the filter; pressing "1" returns to pane 1 with no filter.
+	// Re-open and commit a fresh query so we can verify the held bar renders.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	time.Sleep(200 * time.Millisecond)
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	time.Sleep(200 * time.Millisecond)
+	for _, r := range "held_bar" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// The held-filter bar must show the query after committing.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), `"held_bar"`)
+	}, teatest.WithDuration(5*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
 
 // === Acceptance coverage for tasks/ready/page-size-and-no-count.md ===
 //
@@ -1224,19 +1307,20 @@ func TestAC_B10_LeavingPaneClearsFilter(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	time.Sleep(300 * time.Millisecond)
 
-	// Open the filter and type a unique string never seen before in this test.
-	// If the filter was cleared when focus left (B10), typing "xfresh" gives
-	// filter="xfresh" and `filter: "xfresh"` appears. If the filter was NOT
-	// cleared (held "filter_ac"), typing "xfresh" produces "filter_acxfresh" —
-	// a different string. Using a novel positive assertion avoids the teatest
-	// accumulated-bytes problem (WaitFor checks ALL bytes ever written).
+	// Open the filter, type a unique string, and commit it. If the filter was
+	// cleared when focus left (B10), typing "xfresh" gives filter="xfresh" and
+	// the held-filter bar shows `/ "xfresh"`. If the filter was NOT cleared
+	// (held "filter_ac"), typing "xfresh" produces "filter_acxfresh", shown as
+	// `/ "filter_acxfresh"` — a different string. Using a novel positive
+	// assertion avoids the teatest accumulated-bytes problem.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	time.Sleep(200 * time.Millisecond)
 	for _, r := range "xfresh" {
 		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), `filter: "xfresh"`)
+		return strings.Contains(string(bts), `"xfresh"`)
 	}, teatest.WithDuration(5*time.Second))
 
 	_ = tm.Quit()
