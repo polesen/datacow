@@ -11,3 +11,11 @@ var FormatEstimateExported = formatEstimate
 func FilterFlashExpiredMsgForTest() tea.Msg {
 	return filterFlashExpiredMsg{}
 }
+
+// LocalSearchFlashExpiredMsgForTest returns the unexported localSearchFlashExpiredMsg for use in external test packages.
+func LocalSearchFlashExpiredMsgForTest() tea.Msg {
+	return localSearchFlashExpiredMsg{}
+}
+
+// IsLocalSearchFlashing exposes the localSearchFlashing field for tests.
+func (m RowBrowserModel) IsLocalSearchFlashing() bool { return m.localSearchFlashing }

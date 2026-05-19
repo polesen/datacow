@@ -470,18 +470,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.tableList, cmd = a.tableList.OnFocusGained()
 					return a, cmd
 				case "2":
-					if a.focus == focusTables {
-						a.tableList = a.tableList.ClearFilter()
-					}
 					a.focus = focusRowBrowser
 					if a.maximized {
 						a.pushMaximizedSizes()
 					}
-					return a, nil
-				case "3":
-					if a.focus == focusTables {
-						a.tableList = a.tableList.ClearFilter()
+					if a.rowBrowserReady {
+						a.rowBrowser, cmd = a.rowBrowser.OnFocusGained()
 					}
+					return a, cmd
+				case "3":
 					if a.maximized {
 						a.maximized = false
 						a.pushNormalSizes()
@@ -511,12 +508,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if key.Matches(msg, a.keys.SwitchFocus) {
 				if !tableListBlocksKeys &&
 					(!a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey()) {
-					if a.focus == focusTables {
-						a.tableList = a.tableList.ClearFilter()
-					}
 					a.focus = focus((int(a.focus) + 1) % 3)
 					if a.focus == focusTables {
 						a.tableList, cmd = a.tableList.OnFocusGained()
+					} else if a.focus == focusRowBrowser && a.rowBrowserReady {
+						a.rowBrowser, cmd = a.rowBrowser.OnFocusGained()
 					}
 					return a, cmd
 				}
@@ -525,12 +521,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if key.Matches(msg, a.keys.SwitchFocusBack) {
 				if !tableListBlocksKeys &&
 					(!a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey()) {
-					if a.focus == focusTables {
-						a.tableList = a.tableList.ClearFilter()
-					}
 					a.focus = focus((int(a.focus) + 2) % 3)
 					if a.focus == focusTables {
 						a.tableList, cmd = a.tableList.OnFocusGained()
+					} else if a.focus == focusRowBrowser && a.rowBrowserReady {
+						a.rowBrowser, cmd = a.rowBrowser.OnFocusGained()
 					}
 					return a, cmd
 				}
@@ -554,7 +549,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if !inModalInput && a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 				if ds := a.tableList.SelectedDataset(); ds != nil {
-					a.tableList = a.tableList.ClearFilter()
 					a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds, a.pageSizeRegistry, a.schemaCache)
 					sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 					a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
@@ -633,7 +627,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		if msg.Dataset != nil {
-			a.tableList = a.tableList.ClearFilter()
 			a.tableList, _ = a.tableList.SelectByName(msg.Dataset.Name)
 			a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *msg.Dataset, a.pageSizeRegistry, a.schemaCache)
 			sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}

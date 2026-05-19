@@ -373,12 +373,14 @@ func TestAC_B09_EscClearsFilterAndRestoresCursor(t *testing.T) {
 	}
 }
 
-// B10: Switching focus to another pane, or leaving the tables view, clears
-// the filter. Covered by TestAC_B10_LeavingPaneClearsFilter in app_test.go
-// (requires TEST_POSTGRES_DSN and uses teatest). See that file for the
-// authoritative acceptance test.
+// B10: Switching focus to another pane does NOT clear the filter; it persists
+// until Esc is explicitly pressed. Unit proof: TestTableListFilter_PersistsAfterOnFocusGained
+// in tablelist_test.go. Integration proof: TestAC_B10_FilterPersistsAcrossFocusChanges
+// in app_test.go (requires TEST_POSTGRES_DSN).
 
-// B11: Status bar shows `filter: "X"  M/N` while a filter is held.
+// B11: Filter status is shown inside the tables pane as a held-filter bar (amber).
+// FilterStatus() still returns the correct string (method preserved), but it is no
+// longer called from the app status bar — the pane-level bar is the canonical display.
 func TestAC_B11_FilterStatusShownWhileHeld(t *testing.T) {
 	m := loadedTableListModel(t, nil, []dataset.Dataset{
 		{Name: "users", Table: "users", Kind: dataset.KindTable},

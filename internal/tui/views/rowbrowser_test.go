@@ -651,6 +651,122 @@ func TestRowBrowserModel_LocalSearch_FilteredView(t *testing.T) {
 	}
 }
 
+func TestRowBrowserModel_LocalSearch_FlashOnCommit(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 2,
+		[]db.Column{{Name: "name"}},
+		[]map[string]any{{"name": "Alice"}, {"name": "Bob"}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "alice" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if cmd == nil {
+		t.Fatal("Enter with active query must return a tick cmd for the flash")
+	}
+	if !m.IsLocalSearchFlashing() {
+		t.Error("localSearchFlashing must be true immediately after Enter")
+	}
+
+	// Simulate flash expiry.
+	m, _ = m.Update(views.LocalSearchFlashExpiredMsgForTest())
+	if m.IsLocalSearchFlashing() {
+		t.Error("localSearchFlashing must be false after expiry message")
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_OnFocusGained_Flashes(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Open, type, commit (hold the search).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "foo" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Expire the commit flash so state is calm.
+	m, _ = m.Update(views.LocalSearchFlashExpiredMsgForTest())
+
+	m2, cmd := m.OnFocusGained()
+	if cmd == nil {
+		t.Error("OnFocusGained with held search must return a tick cmd")
+	}
+	if !m2.IsLocalSearchFlashing() {
+		t.Error("OnFocusGained must set localSearchFlashing=true when search is held")
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_OnFocusGained_NoSearch(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	_, cmd := m.OnFocusGained()
+	if cmd != nil {
+		t.Error("OnFocusGained with no search must return nil cmd")
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_HeldBarVisible(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 2,
+		[]db.Column{{Name: "name"}},
+		[]map[string]any{{"name": "Alice"}, {"name": "Bob"}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "alice" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.IsLocalSearchInputActive() {
+		t.Fatal("expected search input closed after Enter")
+	}
+	v := m.View()
+	if !strings.Contains(v, `"alice"`) {
+		t.Errorf("held search bar must show quoted query, got:\n%s", v)
+	}
+	if !strings.Contains(v, "esc clear") {
+		t.Errorf("held search bar must show 'esc clear' hint, got:\n%s", v)
+	}
+	if !strings.Contains(v, "n next") {
+		t.Errorf("held search bar must show 'n next' hint, got:\n%s", v)
+	}
+}
+
+func TestRowBrowserModel_StatusLine_LocalSearchHeld(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "alice" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sl := m.StatusLine()
+	if strings.Contains(sl, "search:") {
+		t.Errorf("StatusLine must not include search text when held (bar is in the view): %q", sl)
+	}
+	if !strings.Contains(sl, "users") {
+		t.Errorf("StatusLine must show dataset name when search is held, got: %q", sl)
+	}
+}
+
 func TestRowBrowserModel_QuickFilter_Open(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	m := newModel(ds)

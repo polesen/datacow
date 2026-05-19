@@ -820,6 +820,28 @@ func TestTableListFilter_OnFocusGainedNoFilter(t *testing.T) {
 	}
 }
 
+func TestTableListFilter_PersistsAfterOnFocusGained(t *testing.T) {
+	// OnFocusGained is what app.go calls when returning focus to the tables pane.
+	// It must NOT clear the filter — only Esc should do that.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "orders", Table: "orders", Kind: dataset.KindTable},
+		{Name: "users", Table: "users", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "ord")
+	m, _ = pressEnter(m) // hold filter
+
+	m, _ = m.OnFocusGained()
+
+	if !m.FilterActive() {
+		t.Error("filter must persist after OnFocusGained — ClearFilter must not be called on focus switch")
+	}
+	v := m.View()
+	if !strings.Contains(v, `"ord"`) {
+		t.Errorf("held-filter bar must still be visible after OnFocusGained, got:\n%s", v)
+	}
+}
+
 func TestTableListFilter_NavigationWhileInputOpen(t *testing.T) {
 	// Up/Down arrow keys should navigate the filtered list even while the filter
 	// input is still open, without requiring the user to press Enter first.

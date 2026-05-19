@@ -68,6 +68,9 @@ const (
 	modeRefByPicker         // "referenced by" picker overlay is open
 )
 
+// localSearchFlashExpiredMsg is sent when the 400ms local-search flash timer expires.
+type localSearchFlashExpiredMsg struct{}
+
 // exportEvent is sent by the export goroutine to report progress and completion.
 type exportEvent struct {
 	n    int    // rows written so far
@@ -125,7 +128,8 @@ type RowBrowserModel struct {
 	mode           uiMode
 	filterModal    FilterModalModel
 	refByPicker    RefByPickerModel
-	localSearch    LocalSearchState
+	localSearch        LocalSearchState
+	localSearchFlashing bool
 	exportProgress int
 	statusMsg      string
 	exporter       *export.Exporter
@@ -468,6 +472,10 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		ch := m.exportCh
 		return m, func() tea.Msg { return <-ch }
 
+	case localSearchFlashExpiredMsg:
+		m.localSearchFlashing = false
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -509,8 +517,11 @@ func (m RowBrowserModel) handleKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
 func (m RowBrowserModel) handleLocalSearchKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEnter:
-		// Close input but keep highlights
 		m.localSearch = m.localSearch.withInputClosed()
+		if m.localSearch.Query() != "" {
+			m.localSearchFlashing = true
+			return m, tea.Tick(400*time.Millisecond, func(time.Time) tea.Msg { return localSearchFlashExpiredMsg{} })
+		}
 		return m, nil
 
 	case tea.KeyEsc:
@@ -1095,6 +1106,16 @@ func (m RowBrowserModel) IsPageSizeInputOpen() bool    { return m.mode == modePa
 func (m RowBrowserModel) IsLocalSearchInputActive() bool {
 	return m.localSearch.InputActive()
 }
+
+// OnFocusGained is called by app.go when the row browser pane gains keyboard focus.
+// If a local search is held, it triggers the 400ms attention flash.
+func (m RowBrowserModel) OnFocusGained() (RowBrowserModel, tea.Cmd) {
+	if m.localSearch.IsActive() && !m.localSearch.InputActive() {
+		m.localSearchFlashing = true
+		return m, tea.Tick(400*time.Millisecond, func(time.Time) tea.Msg { return localSearchFlashExpiredMsg{} })
+	}
+	return m, nil
+}
 func (m RowBrowserModel) ExportMenuActive() bool { return m.mode == modeExportMenu }
 
 // BlocksGlobalKeys returns true when the row browser is consuming keys that
@@ -1127,7 +1148,7 @@ func (m RowBrowserModel) visibleRowCount() int {
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
-	if m.localSearch.InputActive() || m.mode == modeExportMenu || m.mode == modeExporting || m.mode == modePageSizeInput {
+	if m.localSearch.IsActive() || m.mode == modeExportMenu || m.mode == modeExporting || m.mode == modePageSizeInput {
 		bottomBarLines = 1
 	}
 	tableHeight := m.height - parentLines - filterPillLines - bottomBarLines
@@ -1190,7 +1211,7 @@ func (m RowBrowserModel) StatusLine() string {
 	if m.mode == modeExporting {
 		return m.exportProgressText()
 	}
-	if m.localSearch.IsActive() {
+	if m.localSearch.InputActive() {
 		return m.localSearch.StatusText()
 	}
 	if m.statusMsg != "" {
@@ -1293,7 +1314,7 @@ func (m RowBrowserModel) View() string {
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
-	if m.localSearch.InputActive() || m.mode == modeExportMenu || m.mode == modeExporting || m.mode == modePageSizeInput {
+	if m.localSearch.IsActive() || m.mode == modeExportMenu || m.mode == modeExporting || m.mode == modePageSizeInput {
 		bottomBarLines = 1
 	}
 
@@ -1305,6 +1326,13 @@ func (m RowBrowserModel) View() string {
 
 	// Bottom bar (local search / export menu / exporting / page size input)
 	switch {
+	case m.localSearch.IsActive() && !m.localSearch.InputActive():
+		barText := m.localSearch.StatusText() + "  ·  n next  ·  N prev  ·  esc clear"
+		barStyle := style.FilterBarHeld
+		if m.localSearchFlashing {
+			barStyle = style.FilterBarFlash
+		}
+		sections = append(sections, barStyle.Width(m.width).Render(barText))
 	case m.localSearch.InputActive():
 		bar := style.FilterBar.Width(m.width).Render(m.localSearch.View(m.width))
 		sections = append(sections, bar)
