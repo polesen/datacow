@@ -14,7 +14,7 @@ package views_test
 //   5. Space toggles; J/K reorder; a selects all; r resets    → TestAC_CP02
 //   6. Enter applies and triggers re-fetch                    → TestAC_CP03
 //   7. Zero visible columns shows error, keeps overlay open   → TestAC_CP04
-//   8. Status bar shows cols: N/M when non-default            → TestAC_CP05
+//   8. Pill bar shows cols N/M pill when non-default           → TestAC_CP05
 //   9. Selection preserved across navigation                  → TestAC_CP06
 //  10. Export uses active column projection                    → TestAC_CP03 (verifies registry state; startExport passes VisibleColumns — same code path, no separate export integration test needed)
 //  11. C key in keys.Map + helpoverlay                        → TestAC_CP07
@@ -143,10 +143,10 @@ func TestAC_CP03_EnterAppliesProjection(t *testing.T) {
 		t.Errorf("picker should be closed after Enter, got:\n%s", v)
 	}
 
-	// The registry now has drop_me hidden. StatusLine should show cols: 2/3.
-	sl := m.StatusLine()
-	if !strings.Contains(sl, "cols: 2/3") {
-		t.Errorf("status line should show 'cols: 2/3', got: %s", sl)
+	// The registry now has drop_me hidden. View should show cols 2/3 pill.
+	v = m.View()
+	if !strings.Contains(v, "cols 2/3") {
+		t.Errorf("view should show 'cols 2/3' pill, got:\n%s", v)
 	}
 
 	// Simulate the re-fetch arriving with the projected result (only id and name).
@@ -192,16 +192,16 @@ func TestAC_CP04_ZeroColumnsShowsError(t *testing.T) {
 	}
 }
 
-// CP05: Status bar shows cols: N/M when non-default projection is active.
+// CP05: Pill bar shows cols N/M when non-default projection is active.
 func TestAC_CP05_StatusBarColsIndicator(t *testing.T) {
 	cols := []db.Column{{Name: "id"}, {Name: "name"}, {Name: "extra"}}
 	rows := []map[string]any{{"id": 1, "name": "Alice", "extra": "x"}}
 	m := makeColumnPickerModel(cols, rows)
 
-	// Default state: status line should NOT show "cols:".
-	sl := m.StatusLine()
-	if strings.Contains(sl, "cols:") {
-		t.Errorf("status line should not show cols: for default selection, got: %s", sl)
+	// Default state: view should NOT show a cols pill.
+	v := m.View()
+	if strings.Contains(v, "cols 3/3") || strings.Contains(v, "cols 2/3") {
+		t.Errorf("view should not show cols pill for default selection, got:\n%s", v)
 	}
 
 	// Open picker, hide "extra".
@@ -211,10 +211,10 @@ func TestAC_CP05_StatusBarColsIndicator(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}) // hide extra
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	// After confirm, status line shows cols: 2/3.
-	sl = m.StatusLine()
-	if !strings.Contains(sl, "cols: 2/3") {
-		t.Errorf("expected 'cols: 2/3' in status line, got: %s", sl)
+	// After confirm, view shows cols 2/3 pill.
+	v = m.View()
+	if !strings.Contains(v, "cols 2/3") {
+		t.Errorf("expected 'cols 2/3' pill in view, got:\n%s", v)
 	}
 }
 
@@ -238,10 +238,10 @@ func TestAC_CP06_SelectionPreserved(t *testing.T) {
 	)
 	m, _ = m.Update(views.RowsLoadedMsg(projected))
 
-	// Status line still shows cols: 2/3.
-	sl := m.StatusLine()
-	if !strings.Contains(sl, "cols: 2/3") {
-		t.Errorf("expected 'cols: 2/3' preserved after re-fetch, got: %s", sl)
+	// Cols 2/3 pill still visible after re-fetch.
+	v := m.View()
+	if !strings.Contains(v, "cols 2/3") {
+		t.Errorf("expected 'cols 2/3' pill preserved after re-fetch, got:\n%s", v)
 	}
 }
 

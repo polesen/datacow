@@ -1247,7 +1247,7 @@ func (m RowBrowserModel) visibleRowCount() int {
 		}
 	}
 	filterPillLines := 0
-	if len(m.filters) > 0 {
+	if m.hasActivePills() {
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
@@ -1340,20 +1340,6 @@ func (m RowBrowserModel) StatusLine() string {
 		base = fmt.Sprintf("%s  page %d", m.ds.Name, m.result.Page)
 	}
 
-	if len(m.filters) > 0 {
-		base += fmt.Sprintf("  [%d filter(s)]", len(m.filters))
-	}
-	if m.sort != nil {
-		dir := "ASC"
-		if m.sort.Desc {
-			dir = "DESC"
-		}
-		base += fmt.Sprintf("  sort: %s %s", m.sort.Column, dir)
-	}
-	if !m.columns.IsDefault(m.ds.Name) {
-		visible, total := m.columns.CountVisible(m.ds.Name)
-		base += fmt.Sprintf("  cols: %d/%d", visible, total)
-	}
 	return base
 }
 
@@ -1421,8 +1407,8 @@ func (m RowBrowserModel) View() string {
 	}
 
 	filterPillLines := 0
-	if len(m.filters) > 0 {
-		sections = append(sections, m.renderFilterPills())
+	if m.hasActivePills() {
+		sections = append(sections, m.renderActivePills())
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
@@ -1484,10 +1470,28 @@ func (m RowBrowserModel) View() string {
 	return main
 }
 
-func (m RowBrowserModel) renderFilterPills() string {
+func (m RowBrowserModel) hasActivePills() bool {
+	if len(m.filters) > 0 || m.sort != nil {
+		return true
+	}
+	return !m.columns.IsDefault(m.ds.Name)
+}
+
+func (m RowBrowserModel) renderActivePills() string {
 	var parts []string
 	for _, f := range m.filters {
 		parts = append(parts, style.FilterPill.Render(formatFilterLabel(f)))
+	}
+	if m.sort != nil {
+		arrow := "↑"
+		if m.sort.Desc {
+			arrow = "↓"
+		}
+		parts = append(parts, style.FilterPillSelected.Render(m.sort.Column+" "+arrow))
+	}
+	if !m.columns.IsDefault(m.ds.Name) {
+		visible, total := m.columns.CountVisible(m.ds.Name)
+		parts = append(parts, style.FilterPillSelected.Render(fmt.Sprintf("cols %d/%d", visible, total)))
 	}
 	return strings.Join(parts, " ")
 }
