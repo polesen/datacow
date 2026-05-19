@@ -1324,7 +1324,13 @@ func (m RowBrowserModel) View() string {
 	}
 	sections = append(sections, m.renderTable(tableHeight))
 
-	// Bottom bar (local search / export menu / exporting / page size input)
+	// Build the bottom bar separately so it anchors to the window bottom regardless
+	// of how many data rows are visible. renderTable() does not pad to tableHeight,
+	// so appending the bar to sections would leave it floating just after the last
+	// data row. Instead: render sections into Height(m.height-1) (which forces
+	// lipgloss to pad the empty space), then concatenate the bar — same pattern as
+	// tablelist.go.
+	var bottomBar string
 	switch {
 	case m.localSearch.IsActive() && !m.localSearch.InputActive():
 		barText := m.localSearch.StatusText() + "  ·  n next  ·  N prev  ·  esc clear"
@@ -1332,36 +1338,38 @@ func (m RowBrowserModel) View() string {
 		if m.localSearchFlashing {
 			barStyle = style.FilterBarFlash
 		}
-		sections = append(sections, barStyle.Width(m.width).Render(barText))
+		bottomBar = barStyle.Width(m.width).Render(barText)
 	case m.localSearch.InputActive():
-		bar := style.FilterBar.Width(m.width).Render(m.localSearch.View(m.width))
-		sections = append(sections, bar)
+		bottomBar = style.FilterBar.Width(m.width).Render(m.localSearch.View(m.width))
 	case m.mode == modeExportMenu:
-		bar := style.ExportBar.Width(m.width).Render(
+		bottomBar = style.ExportBar.Width(m.width).Render(
 			style.StatusKey.Render("c") + style.StatusDesc.Render(" CSV") +
 				"  " +
 				style.StatusKey.Render("x") + style.StatusDesc.Render(" Excel") +
 				"  " +
 				style.StatusKey.Render("esc") + style.StatusDesc.Render(" cancel"),
 		)
-		sections = append(sections, bar)
 	case m.mode == modeExporting:
-		bar := style.ExportBar.Width(m.width).Render(
+		bottomBar = style.ExportBar.Width(m.width).Render(
 			style.Progress.Render(m.exportProgressText()),
 		)
-		sections = append(sections, bar)
 	case m.mode == modePageSizeInput:
-		content := "Page size: " + m.pageSizeInput.View()
+		psContent := "Page size: " + m.pageSizeInput.View()
 		if m.pageSizeError != "" {
-			content += "  (" + m.pageSizeError + ")"
+			psContent += "  (" + m.pageSizeError + ")"
 		}
-		bar := style.FilterBar.Width(m.width).Render(content)
-		sections = append(sections, bar)
+		bottomBar = style.FilterBar.Width(m.width).Render(psContent)
 	}
 
-	return style.Content.Width(m.width).Height(m.height).Render(
-		strings.Join(sections, "\n"),
-	)
+	mainHeight := m.height
+	if bottomBar != "" {
+		mainHeight--
+	}
+	main := style.Content.Width(m.width).Height(mainHeight).Render(strings.Join(sections, "\n"))
+	if bottomBar != "" {
+		return main + "\n" + bottomBar
+	}
+	return main
 }
 
 func (m RowBrowserModel) renderFilterPills() string {
