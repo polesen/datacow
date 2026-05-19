@@ -12,7 +12,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ./tasks/run-task.sh ready/<task>.md
 ```
 
-- [Filter Bar Visibility — Tables Pane](ready/tablelist-filter-bar-visibility.md)
+- [Save Table View as Perspective](ready/save-table-perspective.md)
 
 ## Done
 
