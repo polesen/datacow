@@ -55,8 +55,7 @@ func (v *HelpOverlayView) View() string {
 			title: "Query Filter",
 			bindings: []key.Binding{
 				v.keys.QueryFilter, v.keys.LocalSearch,
-				v.keys.QuickFilterCell, v.keys.NextMatch,
-				v.keys.PrevMatch,
+				v.keys.QuickFilterCell,
 			},
 		},
 		{

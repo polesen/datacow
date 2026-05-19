@@ -18,14 +18,15 @@ Run each step below in order. Stop and report clearly if any step fails — do n
 
 Once all quality gates pass, close out the task:
 
-11. Move task file — `git mv tasks/ready/<task>.md tasks/done/<task>.md` (or from `drafts/`)
-12. Commit — stage all changes including the task file move, then commit with a message explaining why the change was made
-13. Push — `git push -u origin <branch>`
-14. Open PR — `gh pr create` with a short descriptive title (not the task filename) and a body describing what was built and why, followed by:
+11. Task file accuracy — compare the task file (behaviour, files table, acceptance criteria, implementation notes) against what was actually built. If anything diverges — added behaviour, removed features, changed UX details, extra files touched — draft the proposed updates and **present them to the user for approval before making any edits**. Only proceed after explicit confirmation. If nothing diverged, state that clearly and continue.
+12. Move task file — `git mv tasks/ready/<task>.md tasks/done/<task>.md` (or from `drafts/`)
+13. Commit — stage all changes including the task file move, then commit with a message explaining why the change was made
+14. Push — `git push -u origin <branch>`
+15. Open PR — `gh pr create` with a short descriptive title (not the task filename) and a body describing what was built and why, followed by:
     ```
     ## Review checklist
     - [ ] Code does what the task describes
     - [ ] Run `/simplify` if reviewer flags unnecessary complexity
     ```
 
-Only report the task as done when all fourteen steps are complete.
+Only report the task as done when all fifteen steps are complete.

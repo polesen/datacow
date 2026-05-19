@@ -641,10 +641,9 @@ func TestRowBrowserModel_LocalSearch_FilteredView(t *testing.T) {
 		t.Error("filtered view must not show Bob")
 	}
 
-	// n advances to next match
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-	// N goes back — no crash
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
+	// arrow keys navigate matches — no crash and input stays closed
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 
 	if m.IsLocalSearchInputActive() {
 		t.Error("search input should be closed after Enter")
@@ -740,8 +739,49 @@ func TestRowBrowserModel_LocalSearch_HeldBarVisible(t *testing.T) {
 	if !strings.Contains(v, "esc clear") {
 		t.Errorf("held search bar must show 'esc clear' hint, got:\n%s", v)
 	}
-	if !strings.Contains(v, "n next") {
-		t.Errorf("held search bar must show 'n next' hint, got:\n%s", v)
+	if !strings.Contains(v, "↑/↓ navigate") {
+		t.Errorf("held search bar must show '↑/↓ navigate' hint, got:\n%s", v)
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_ArrowNavigation(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 3,
+		[]db.Column{{Name: "name"}},
+		[]map[string]any{
+			{"name": "Alice"},
+			{"name": "Bob"},
+			{"name": "Alice2"},
+		},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// commit a search that matches two rows
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "alice" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// initial cursor is at match 0 — Alice is selected, Alice2 also visible
+	v := m.View()
+	if !strings.Contains(v, "Alice") {
+		t.Error("first match (Alice) must be visible initially")
+	}
+
+	// Down should advance to match 1
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	v = m.View()
+	if !strings.Contains(v, "Alice2") {
+		t.Error("second match (Alice2) must be visible after Down")
+	}
+
+	// Up should go back to match 0 — no crash
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.IsLocalSearchInputActive() {
+		t.Error("search input must stay closed during arrow navigation")
 	}
 }
 

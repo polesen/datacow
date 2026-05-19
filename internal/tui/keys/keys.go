@@ -11,8 +11,6 @@ type Map struct {
 	LocalSearch     key.Binding
 	TableListFilter key.Binding
 	QuickFilterCell key.Binding
-	NextMatch       key.Binding
-	PrevMatch       key.Binding
 	Sort            key.Binding
 	Export          key.Binding
 	QueryLog        key.Binding
@@ -67,14 +65,6 @@ func Default() Map {
 		QuickFilterCell: key.NewBinding(
 			key.WithKeys("="),
 			key.WithHelp("=", "quick filter cell"),
-		),
-		NextMatch: key.NewBinding(
-			key.WithKeys("n"),
-			key.WithHelp("n", "next match"),
-		),
-		PrevMatch: key.NewBinding(
-			key.WithKeys("N"),
-			key.WithHelp("N", "prev match"),
 		),
 		Sort: key.NewBinding(
 			key.WithKeys("s"),
@@ -197,7 +187,7 @@ func (m Map) TableListHelp() []key.Binding {
 func (m Map) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{m.Up, m.Down, m.Left, m.Right, m.Enter, m.Back, m.NextPage, m.PrevPage, m.FirstPage, m.LastPage, m.PageSize},
-		{m.QueryFilter, m.LocalSearch, m.QuickFilterCell, m.NextMatch, m.PrevMatch, m.Sort, m.Export, m.ViewCell},
+		{m.QueryFilter, m.LocalSearch, m.QuickFilterCell, m.Sort, m.Export, m.ViewCell},
 		{m.DrillFwd, m.DrillReverse},
 		{m.SwitchFocus, m.SwitchFocusBack, m.Pane1, m.Pane2, m.Pane3, m.Maximize, m.Goto},
 		{m.TableListFilter, m.QueryLog, m.Refresh, m.TableInfo, m.Help, m.Quit},

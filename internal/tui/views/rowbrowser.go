@@ -128,7 +128,8 @@ type RowBrowserModel struct {
 	mode           uiMode
 	filterModal    FilterModalModel
 	refByPicker    RefByPickerModel
-	localSearch        LocalSearchState
+	localSearch         LocalSearchState
+	localSearchOffset   int
 	localSearchFlashing bool
 	exportProgress int
 	statusMsg      string
@@ -312,7 +313,7 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		m.filterModal, cmd = m.filterModal.Update(msg)
 		if m.filterModal.IsApplied() {
 			m.filters = m.filterModal.Filters()
-			m.localSearch = m.localSearch.cleared()
+			m = m.clearLocalSearch()
 			m.mode = modeNormal
 			m.statusMsg = ""
 			m.knownTotalPages = nil
@@ -525,7 +526,7 @@ func (m RowBrowserModel) handleLocalSearchKey(msg tea.KeyMsg) (RowBrowserModel, 
 		return m, nil
 
 	case tea.KeyEsc:
-		m.localSearch = m.localSearch.cleared()
+		m = m.clearLocalSearch()
 		return m, nil
 
 	default:
@@ -584,7 +585,7 @@ func (m RowBrowserModel) applyPageSizeInput() (RowBrowserModel, tea.Cmd) {
 	// Changing page size invalidates the discovered total.
 	m.knownTotalPages = nil
 	m.knownTotalRows = nil
-	m.localSearch = m.localSearch.cleared()
+	m = m.clearLocalSearch()
 	// Stay near the current position: compute the absolute row of the cursor
 	// and derive which page that row falls on with the new size.
 	targetPage := 1
@@ -616,7 +617,7 @@ func (m RowBrowserModel) handleExportMenuKey(msg tea.KeyMsg) (RowBrowserModel, t
 func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.Cmd) {
 	// Esc clears local search if active (before checking drill stack)
 	if key.Matches(msg, m.keys.Back) && m.localSearch.IsActive() {
-		m.localSearch = m.localSearch.cleared()
+		m = m.clearLocalSearch()
 		return m, nil
 	}
 
@@ -641,14 +642,6 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 	case key.Matches(msg, m.keys.QuickFilterCell):
 		return m.openQuickFilter()
 
-	case m.localSearch.IsActive() && key.Matches(msg, m.keys.NextMatch):
-		m.localSearch = m.localSearch.withNextMatch()
-		return m, nil
-
-	case m.localSearch.IsActive() && key.Matches(msg, m.keys.PrevMatch):
-		m.localSearch = m.localSearch.withPrevMatch()
-		return m, nil
-
 	case key.Matches(msg, m.keys.Sort):
 		m = m.cycleSort()
 		m.statusMsg = ""
@@ -664,21 +657,21 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 
 	case key.Matches(msg, m.keys.NextPage):
 		if m.result.HasMore {
-			m.localSearch = m.localSearch.cleared()
+			m = m.clearLocalSearch()
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(m.result.Page+1))
 		}
 
 	case key.Matches(msg, m.keys.PrevPage):
 		if m.result.Page > 1 {
-			m.localSearch = m.localSearch.cleared()
+			m = m.clearLocalSearch()
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(m.result.Page-1))
 		}
 
 	case key.Matches(msg, m.keys.FirstPage):
 		if m.result.Page != 1 {
-			m.localSearch = m.localSearch.cleared()
+			m = m.clearLocalSearch()
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
 		}
@@ -696,14 +689,36 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 		return m, m.pageSizeInput.Focus()
 
 	case key.Matches(msg, m.keys.Down):
-		if m.rowCursor < len(m.result.Rows)-1 {
+		if m.localSearch.IsActive() {
+			prevCur := m.localSearch.MatchCursor()
+			m.localSearch = m.localSearch.withNextMatch()
+			cur := m.localSearch.MatchCursor()
+			visible := m.visibleRowCount()
+			if cur < prevCur {
+				// wrapped around to first match
+				m.localSearchOffset = 0
+			} else if visible > 0 && cur >= m.localSearchOffset+visible {
+				m.localSearchOffset = cur - visible + 1
+			}
+		} else if m.rowCursor < len(m.result.Rows)-1 {
 			m.rowCursor++
 			if visible := m.visibleRowCount(); visible > 0 && m.rowCursor >= m.rowOffset+visible {
 				m.rowOffset = m.rowCursor - visible + 1
 			}
 		}
 	case key.Matches(msg, m.keys.Up):
-		if m.rowCursor > 0 {
+		if m.localSearch.IsActive() {
+			prevCur := m.localSearch.MatchCursor()
+			m.localSearch = m.localSearch.withPrevMatch()
+			cur := m.localSearch.MatchCursor()
+			visible := m.visibleRowCount()
+			if cur > prevCur {
+				// wrapped around to last match — scroll to show it
+				m.localSearchOffset = max(0, m.localSearch.MatchCount()-visible)
+			} else if cur < m.localSearchOffset {
+				m.localSearchOffset = cur
+			}
+		} else if m.rowCursor > 0 {
 			m.rowCursor--
 			if m.rowCursor < m.rowOffset {
 				m.rowOffset = m.rowCursor
@@ -821,7 +836,7 @@ func (m RowBrowserModel) handleDrillDown() (RowBrowserModel, tea.Cmd) {
 	m.err = nil
 	m.statusMsg = ""
 	m.mode = modeNormal
-	m.localSearch = m.localSearch.cleared()
+	m = m.clearLocalSearch()
 	m.knownTotalPages = nil
 	m.knownTotalRows = nil
 	m.knownTotalExact = false
@@ -920,7 +935,7 @@ func (m RowBrowserModel) drillReverse(ibfk schema.InboundFK, cellValue any) (Row
 	m.err = nil
 	m.statusMsg = ""
 	m.mode = modeNormal
-	m.localSearch = m.localSearch.cleared()
+	m = m.clearLocalSearch()
 	m.knownTotalPages = nil
 	m.knownTotalRows = nil
 	m.knownTotalExact = false
@@ -992,7 +1007,7 @@ func (m RowBrowserModel) popDrillStack() (RowBrowserModel, tea.Cmd) {
 	m.err = nil
 	m.statusMsg = ""
 	m.mode = modeNormal
-	m.localSearch = m.localSearch.cleared()
+	m = m.clearLocalSearch()
 	m.knownTotalPages = last.knownTotalPages
 	m.knownTotalRows = last.knownTotalRows
 	m.knownTotalExact = last.knownTotalExact
@@ -1116,6 +1131,14 @@ func (m RowBrowserModel) OnFocusGained() (RowBrowserModel, tea.Cmd) {
 	}
 	return m, nil
 }
+// clearLocalSearch resets the local search state and its scroll offset.
+func (m RowBrowserModel) clearLocalSearch() RowBrowserModel {
+	m.localSearch = newLocalSearch()
+	m.localSearchOffset = 0
+	return m
+}
+
+
 func (m RowBrowserModel) ExportMenuActive() bool { return m.mode == modeExportMenu }
 
 // BlocksGlobalKeys returns true when the row browser is consuming keys that
@@ -1333,7 +1356,7 @@ func (m RowBrowserModel) View() string {
 	var bottomBar string
 	switch {
 	case m.localSearch.IsActive() && !m.localSearch.InputActive():
-		barText := m.localSearch.StatusText() + "  ·  n next  ·  N prev  ·  esc clear"
+		barText := m.localSearch.StatusText() + "  ·  ↑/↓ navigate  ·  esc clear"
 		barStyle := style.FilterBarHeld
 		if m.localSearchFlashing {
 			barStyle = style.FilterBarFlash
@@ -1466,15 +1489,15 @@ func (m RowBrowserModel) renderTable(height int) string {
 		if len(matchRows) == 0 {
 			lines = append(lines, style.Muted.Render("  no matches for "+strconv.Quote(m.localSearch.Query())))
 		} else {
-			// Center the viewport on the current match.
 			cur := m.localSearch.MatchCursor()
-			start := max(0, cur-maxRows/2)
+			cursorRowIdx := matchRows[cur]
+			start := m.localSearchOffset
 			if start+maxRows > len(matchRows) {
 				start = max(0, len(matchRows)-maxRows)
 			}
 			for fi := start; fi < len(matchRows) && fi-start < maxRows; fi++ {
 				rowIdx := matchRows[fi]
-				lines = append(lines, buildRow(rows[rowIdx], cols, m.colWidths, visible, rowIdx, rowIdx, m.colCursor, fkCols, &m.localSearch, m.localSearch.Query()))
+				lines = append(lines, buildRow(rows[rowIdx], cols, m.colWidths, visible, rowIdx, cursorRowIdx, m.colCursor, fkCols, &m.localSearch, m.localSearch.Query()))
 			}
 		}
 	} else {

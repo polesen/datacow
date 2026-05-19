@@ -44,13 +44,28 @@ search input was active. Extended so a held search (input closed, query set) als
 a full-width `FilterBarHeld` bar at the bottom:
 
 ```
-search: "alice"  2/3 matches  ·  n next  ·  N prev  ·  esc clear
+search: "alice"  2/3 matches  ·  ↑/↓ navigate  ·  esc clear
 ```
 
 `StatusLine()` is updated to only return search status while the input is actively open
 (not when held), so the status bar shows regular page info once the search is committed.
 Both `visibleRowCount()` and the per-render `bottomBarLines` count reserve space for the
 held bar identically to the open input.
+
+**Arrow key navigation through matches** — while a local search is held (input closed),
+pressing `↓`/`j` or `↑`/`k` navigates match-to-match instead of row-to-row.
+`RowBrowserModel` gains a `localSearchOffset int` field that tracks the viewport start
+index into `matchRows`. The offset scrolls one match at a time (forward: scroll when
+cursor leaves bottom of window; backward: scroll when cursor leaves top; wrap-around
+resets offset to 0 or to `max(0, total-visible)`). `renderTable` uses
+`m.localSearchOffset` as the viewport start and passes `matchRows[cur]` as the
+cursor row so only the current match is highlighted — previously all match rows were
+highlighted simultaneously.
+
+`NextMatch` (`n`) and `PrevMatch` (`N`) bindings are **removed** from `keys.Map`,
+`keys.Default()`, `keys.FullHelp()`, and the help overlay's "Query Filter" group.
+The `clearLocalSearch()` helper resets both `localSearch` and `localSearchOffset`; all
+ten former `m.localSearch = m.localSearch.cleared()` call sites use it instead.
 
 ### 3. Flash on commit and focus gain — both panes
 
@@ -107,6 +122,8 @@ In `app.go renderStatusBar()`:
 | `internal/tui/app.go` | Remove all six `ClearFilter()` calls from focus-switch paths; call `OnFocusGained()` at all `focusTables` and `focusRowBrowser` assignment sites; switch tablelist status bar branch to left+gap+right layout; remove `FilterStatus()` from status bar parts. |
 | `internal/tui/app_test.go` | Replace `TestAC_B10_LeavingPaneClearsFilter` with `TestAC_B10_FilterPersistsAcrossFocusChanges`; update `TestApp_TableListFilter_HeldBarVisibleAfterTabAway` to test persistence instead of clear. |
 | `internal/tui/views/tablelist_acceptance_test.go` | Update B10 comment (now documents persistence, not clearing); update B11 comment. |
+| `internal/tui/keys/keys.go` | Remove `NextMatch` and `PrevMatch` fields, `Default()` init, and `FullHelp()` group entry. |
+| `internal/tui/views/helpoverlay.go` | Remove `NextMatch` and `PrevMatch` from the "Query Filter" help group. |
 
 ## Acceptance Criteria
 
@@ -120,6 +137,8 @@ In `app.go renderStatusBar()`:
 - [ ] The row browser local search (`/`) shows a held amber bar at the bottom after Enter, displaying the query, match count, and `n next · N prev · esc clear` hints.
 - [ ] Committing the row browser search (Enter) causes the same 400ms flash on the held bar.
 - [ ] Switching focus to the row browser while a search is held triggers the same 400ms flash.
+- [ ] While a row browser local search is held, pressing `↓`/`↑` navigates match-to-match with the viewport scrolling to keep the current match visible; only the current match is highlighted (not all matches).
+- [ ] `n` and `N` are no longer bound to "next match" / "prev match" and do not appear in the help overlay.
 - [ ] The app status bar no longer shows `filter: "X"  M/N` text — it is not duplicated between pane and status bar.
 - [ ] The app status bar shortcut keys for the tables pane are right-aligned and do not shift when typing into the filter input.
 - [ ] All existing filter/search behaviour (typing narrows list, Esc clears, re-open pre-fills, cursor restore) is unchanged.
