@@ -1013,6 +1013,7 @@ func (a *App) renderRowBrowserStatusBar(runningPart string) string {
 		style.StatusKey.Render("q")+style.StatusDesc.Render(" filter"),
 		style.StatusKey.Render("/")+style.StatusDesc.Render(" search"),
 		style.StatusKey.Render("s")+style.StatusDesc.Render(" sort"),
+		style.StatusKey.Render("C")+style.StatusDesc.Render(" cols"),
 		style.StatusKey.Render("e")+style.StatusDesc.Render(" export"),
 	)
 	if a.rowBrowser.IsFKColumn() {

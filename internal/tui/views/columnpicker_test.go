@@ -119,6 +119,17 @@ func TestColumnPicker_SelectAll(t *testing.T) {
 	}
 }
 
+// TestColumnPicker_DeselectAll verifies that 'd' hides all columns.
+func TestColumnPicker_DeselectAll(t *testing.T) {
+	p := makePicker("id", "name", "email")
+	p = p.HandleKey("d")
+	for _, s := range p.Selection() {
+		if s.Visible {
+			t.Errorf("%s should be hidden after 'd'", s.Name)
+		}
+	}
+}
+
 // TestColumnPicker_Reset verifies that 'r' restores the original schema order.
 func TestColumnPicker_Reset(t *testing.T) {
 	orig := makeSelections("id", "name", "email")

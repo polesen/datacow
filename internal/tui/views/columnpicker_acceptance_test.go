@@ -76,7 +76,7 @@ func TestAC_CP01_COpensPickerEscCancels(t *testing.T) {
 	}
 }
 
-// CP02: Space toggles visibility; J/K reorder; a selects all; r resets.
+// CP02: Space toggles visibility; J/K reorder; a selects all; d deselects all; r resets.
 func TestAC_CP02_PickerKeyboardControls(t *testing.T) {
 	cols := []db.Column{{Name: "id"}, {Name: "name"}, {Name: "extra"}}
 	rows := []map[string]any{{"id": 1, "name": "Alice", "extra": "x"}}
@@ -105,9 +105,14 @@ func TestAC_CP02_PickerKeyboardControls(t *testing.T) {
 		t.Errorf("expected all [✓] after 'a', got:\n%s", v)
 	}
 
-	// Move down to "name", hide it again, then 'r' resets.
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	// 'd' deselects all.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	v = m.View()
+	if strings.Contains(v, "[✓]") {
+		t.Errorf("expected all [ ] after 'd', got:\n%s", v)
+	}
+
+	// 'r' resets to all visible in schema order.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	v = m.View()
 	if strings.Contains(v, "[ ]") {

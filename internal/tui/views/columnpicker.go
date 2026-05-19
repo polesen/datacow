@@ -254,6 +254,12 @@ func (m ColumnPickerModel) handleKey(key string) ColumnPickerModel {
 		}
 		m.errMsg = ""
 
+	case "d":
+		for i := range m.current {
+			m.current[i].Visible = false
+		}
+		m.errMsg = ""
+
 	case "r":
 		orig := make([]ColumnSelection, len(m.original))
 		copy(orig, m.original)
@@ -318,7 +324,7 @@ func (m ColumnPickerModel) View() string {
 	hintLine1 := bs.Render(b.Left) + style.Muted.Render(hint1) + bs.Render(b.Right)
 
 	// Hint line 2.
-	hint2 := " a select all · r reset · ↵ confirm"
+	hint2 := " a all · d none · r reset · ↵ confirm"
 	hint2 = padToWidth(hint2, innerW)
 	hintLine2 := bs.Render(b.Left) + style.Muted.Render(hint2) + bs.Render(b.Right)
 
