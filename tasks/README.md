@@ -13,7 +13,6 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ```
 
 - [Filter Bar Visibility — Tables Pane](ready/tablelist-filter-bar-visibility.md)
-- [Column Picker — Select and Reorder Visible Columns](ready/column-picker.md)
 
 ## Done
 
@@ -45,6 +44,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 - [000026 Row Browser: Per-Dataset Page Size, No Default COUNT(\*)](done/000026-page-size-and-no-count.md)
 - [000027 Reverse FK Drill-Down](done/000027-reverse-fk-drilldown.md)
 - [000028 Table List Filter Bar Visibility](done/000028-tablelist-filter-bar-visibility.md)
+- [000029 Column Picker — Select and Reorder Visible Columns](done/000029-column-picker.md)
 
 ## Future Work
 

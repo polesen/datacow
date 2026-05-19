@@ -37,6 +37,7 @@ type Map struct {
 	TableInfo       key.Binding
 	DrillFwd        key.Binding
 	DrillReverse    key.Binding
+	ColumnPicker    key.Binding
 }
 
 // Default returns the default keybindings.
@@ -170,6 +171,10 @@ func Default() Map {
 			key.WithKeys("<"),
 			key.WithHelp("<", "referenced by"),
 		),
+		ColumnPicker: key.NewBinding(
+			key.WithKeys("C"),
+			key.WithHelp("C", "columns"),
+		),
 	}
 }
 
@@ -188,7 +193,7 @@ func (m Map) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{m.Up, m.Down, m.Left, m.Right, m.Enter, m.Back, m.NextPage, m.PrevPage, m.FirstPage, m.LastPage, m.PageSize},
 		{m.QueryFilter, m.LocalSearch, m.QuickFilterCell, m.Sort, m.Export, m.ViewCell},
-		{m.DrillFwd, m.DrillReverse},
+		{m.DrillFwd, m.DrillReverse, m.ColumnPicker},
 		{m.SwitchFocus, m.SwitchFocusBack, m.Pane1, m.Pane2, m.Pane3, m.Maximize, m.Goto},
 		{m.TableListFilter, m.QueryLog, m.Refresh, m.TableInfo, m.Help, m.Quit},
 	}
