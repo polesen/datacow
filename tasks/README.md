@@ -13,6 +13,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ```
 
 - [Save Table View as Perspective](ready/save-table-perspective.md)
+- [Multi-Column Sort](ready/multi-column-sort.md)
 
 ## Done
 
