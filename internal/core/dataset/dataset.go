@@ -26,6 +26,10 @@ type QueryOptions struct {
 	Filters  []Filter
 	Sort     *Sort
 
+	// Columns is the ordered list of column names to SELECT.
+	// nil or empty means SELECT * (all columns, schema order).
+	Columns []string
+
 	// SkipCount disables the COUNT(*) query and uses PageSize+1 row probing
 	// to populate HasMore. TotalRows and TotalPages on the result are nil.
 	SkipCount bool

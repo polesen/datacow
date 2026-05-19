@@ -60,12 +60,13 @@ func CountLoadedMsgForTest(result *dataset.QueryResult) tea.Msg {
 type uiMode int
 
 const (
-	modeNormal       uiMode = iota
-	modeFilterModal         // query filter modal is open
-	modeExportMenu          // choosing export format
-	modeExporting           // export in progress
-	modePageSizeInput       // page-size input bar is open
-	modeRefByPicker         // "referenced by" picker overlay is open
+	modeNormal        uiMode = iota
+	modeFilterModal          // query filter modal is open
+	modeExportMenu           // choosing export format
+	modeExporting            // export in progress
+	modePageSizeInput        // page-size input bar is open
+	modeRefByPicker          // "referenced by" picker overlay is open
+	modeColumnPicker         // column picker overlay is open
 )
 
 // localSearchFlashExpiredMsg is sent when the 400ms local-search flash timer expires.
@@ -142,6 +143,10 @@ type RowBrowserModel struct {
 	pageSizeInput textinput.Model
 	pageSizeError string
 
+	// column picker
+	columns      *ColumnRegistry
+	columnPicker ColumnPickerModel
+
 	// discovered totals
 	knownTotalPages *int
 	knownTotalRows  *int64
@@ -154,8 +159,13 @@ type RowBrowserModel struct {
 
 // NewRowBrowserModel creates a RowBrowserModel in the initial loading state.
 // executor, exporter, and schemaCache may be nil for testing.
-// pageSizes may be nil (falls back to default 50).
+// pageSizes and columns may be nil (pageSizes falls back to default 50; columns falls back to SELECT *).
 func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export.Exporter, ds dataset.Dataset, pageSizes *PageSizeRegistry, schemaCache *schema.Cache) RowBrowserModel {
+	return NewRowBrowserModelWithColumns(k, executor, exporter, ds, pageSizes, schemaCache, nil)
+}
+
+// NewRowBrowserModelWithColumns creates a RowBrowserModel with an explicit column registry.
+func NewRowBrowserModelWithColumns(k keys.Map, executor *dataset.Executor, exporter *export.Exporter, ds dataset.Dataset, pageSizes *PageSizeRegistry, schemaCache *schema.Cache, columns *ColumnRegistry) RowBrowserModel {
 	ti := textinput.New()
 	ti.CharLimit = 5
 	ti.Width = 8
@@ -171,6 +181,7 @@ func NewRowBrowserModel(k keys.Map, executor *dataset.Executor, exporter *export
 		drillStack:    make([]savedLevel, 0, 4),
 		pageSizes:     pageSizes,
 		pageSizeInput: ti,
+		columns:       columns,
 	}
 }
 
@@ -192,6 +203,7 @@ func (m RowBrowserModel) loadPageCmd(page int) tea.Cmd {
 	ds := m.ds
 	seq := m.drillSeq
 	pageSize := m.currentPageSize()
+	cols := m.columns.VisibleColumns(ds.Name)
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -200,6 +212,7 @@ func (m RowBrowserModel) loadPageCmd(page int) tea.Cmd {
 			PageSize:  pageSize,
 			Filters:   filters,
 			Sort:      sort,
+			Columns:   cols,
 			SkipCount: true,
 		})
 		if err != nil {
@@ -268,6 +281,11 @@ func (m RowBrowserModel) loadPKColsCmd() tea.Cmd {
 }
 
 func (m RowBrowserModel) applyLoadedResult(r *dataset.QueryResult) RowBrowserModel {
+	// Seed column registry on first load for this dataset.
+	// Use the full schema columns (from the result when all columns selected, or
+	// fall back to whatever the query returned).
+	m.columns.Seed(m.ds.Name, r.Columns)
+
 	m.result = r
 	m.loading = false
 	m.rowCursor = 0
@@ -284,6 +302,13 @@ func (m RowBrowserModel) applyLoadedResult(r *dataset.QueryResult) RowBrowserMod
 		}
 	}
 	m.colWidths = computeColWidths(r.Columns, r.Rows)
+	// Clamp column cursor/offset in case a column projection reduced the column count.
+	if m.colCursor >= len(r.Columns) {
+		m.colCursor = max(0, len(r.Columns)-1)
+	}
+	if m.colOffset >= len(r.Columns) {
+		m.colOffset = max(0, len(r.Columns)-1)
+	}
 	// Discover total when we reach the last page, unless we already have an exact total.
 	if !r.HasMore && !m.knownTotalExact {
 		page := r.Page
@@ -356,6 +381,43 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		// Forward other messages (cursor blink, etc.) to text input.
 		m.pageSizeInput, cmd = m.pageSizeInput.Update(msg)
 		return m, cmd
+	}
+
+	// Route all key messages to the column picker when it is open.
+	if m.mode == modeColumnPicker {
+		if ws, ok := msg.(tea.WindowSizeMsg); ok {
+			m.width = ws.Width
+			m.height = ws.Height
+			m.columnPicker.width = ws.Width
+			m.columnPicker.height = ws.Height
+			return m, nil
+		}
+		if _, ok := msg.(spinner.TickMsg); ok {
+			return m, nil
+		}
+		if km, ok := msg.(tea.KeyMsg); ok {
+			switch km.Type {
+			case tea.KeyEnter:
+				m.columnPicker = m.columnPicker.tryConfirm()
+				if m.columnPicker.IsConfirmed() {
+					m.columns.Set(m.ds.Name, m.columnPicker.Selection())
+					m.mode = modeNormal
+					m.knownTotalPages = nil
+					m.knownTotalRows = nil
+					m = m.clearLocalSearch()
+					if m.executor != nil {
+						m.loading = true
+						return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
+					}
+				}
+			case tea.KeyEsc:
+				m.columnPicker = m.columnPicker.cancel()
+				m.mode = modeNormal
+			default:
+				m.columnPicker = m.columnPicker.handleKey(km.String())
+			}
+		}
+		return m, nil
 	}
 
 	// Route all messages to the referenced-by picker when it is open.
@@ -749,7 +811,25 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 
 	case key.Matches(msg, m.keys.ViewCell):
 		return m.openCellViewer()
+
+	case key.Matches(msg, m.keys.ColumnPicker):
+		return m.openColumnPicker()
 	}
+	return m, nil
+}
+
+// openColumnPicker opens the column picker overlay for the active dataset.
+func (m RowBrowserModel) openColumnPicker() (RowBrowserModel, tea.Cmd) {
+	if m.result == nil {
+		return m, nil
+	}
+	sel := m.columns.Get(m.ds.Name)
+	if sel == nil {
+		return m, nil
+	}
+	orig := m.columns.GetOriginal(m.ds.Name)
+	m.columnPicker = NewColumnPickerModel(orig, sel, m.width, m.height)
+	m.mode = modeColumnPicker
 	return m, nil
 }
 
@@ -1056,7 +1136,7 @@ func (m RowBrowserModel) startExport(format export.Format) (RowBrowserModel, tea
 	m.mode = modeExporting
 	m.statusMsg = ""
 
-	opts := dataset.QueryOptions{Filters: m.filters, Sort: m.sort}
+	opts := dataset.QueryOptions{Filters: m.filters, Sort: m.sort, Columns: m.columns.VisibleColumns(m.ds.Name)}
 	ex := m.exporter
 
 	go func() {
@@ -1144,7 +1224,7 @@ func (m RowBrowserModel) ExportMenuActive() bool { return m.mode == modeExportMe
 // BlocksGlobalKeys returns true when the row browser is consuming keys that
 // should not be intercepted by the App (modal open, local search input active).
 func (m RowBrowserModel) BlocksGlobalKeys() bool {
-	return m.mode == modeFilterModal || m.localSearch.InputActive() || m.mode == modePageSizeInput || m.mode == modeRefByPicker
+	return m.mode == modeFilterModal || m.localSearch.InputActive() || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker
 }
 
 // CancelExport cancels an in-progress export if one is running.
@@ -1167,7 +1247,7 @@ func (m RowBrowserModel) visibleRowCount() int {
 		}
 	}
 	filterPillLines := 0
-	if len(m.filters) > 0 {
+	if m.hasActivePills() {
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
@@ -1217,7 +1297,7 @@ func (m RowBrowserModel) refByColSetFromCache() map[string]bool {
 // NeedsBackKey returns true when the row browser is consuming the Back key
 // internally, so the app should not intercept it.
 func (m RowBrowserModel) NeedsBackKey() bool {
-	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0 || m.mode == modePageSizeInput || m.mode == modeRefByPicker
+	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0 || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker
 }
 
 // NeedsTabKey returns true when the row browser is consuming Tab internally
@@ -1260,16 +1340,6 @@ func (m RowBrowserModel) StatusLine() string {
 		base = fmt.Sprintf("%s  page %d", m.ds.Name, m.result.Page)
 	}
 
-	if len(m.filters) > 0 {
-		base += fmt.Sprintf("  [%d filter(s)]", len(m.filters))
-	}
-	if m.sort != nil {
-		dir := "ASC"
-		if m.sort.Desc {
-			dir = "DESC"
-		}
-		base += fmt.Sprintf("  sort: %s %s", m.sort.Column, dir)
-	}
 	return base
 }
 
@@ -1288,6 +1358,11 @@ func (m RowBrowserModel) View() string {
 	// RefBy picker overlay takes the full view area.
 	if m.mode == modeRefByPicker {
 		return style.Content.Width(m.width).Height(m.height).Render(m.refByPicker.View())
+	}
+
+	// Column picker overlay takes the full view area.
+	if m.mode == modeColumnPicker {
+		return style.Content.Width(m.width).Height(m.height).Render(m.columnPicker.View())
 	}
 
 	// Full-screen spinner for the initial root-level load (no parent levels yet).
@@ -1332,8 +1407,8 @@ func (m RowBrowserModel) View() string {
 	}
 
 	filterPillLines := 0
-	if len(m.filters) > 0 {
-		sections = append(sections, m.renderFilterPills())
+	if m.hasActivePills() {
+		sections = append(sections, m.renderActivePills())
 		filterPillLines = 1
 	}
 	bottomBarLines := 0
@@ -1395,10 +1470,28 @@ func (m RowBrowserModel) View() string {
 	return main
 }
 
-func (m RowBrowserModel) renderFilterPills() string {
+func (m RowBrowserModel) hasActivePills() bool {
+	if len(m.filters) > 0 || m.sort != nil {
+		return true
+	}
+	return !m.columns.IsDefault(m.ds.Name)
+}
+
+func (m RowBrowserModel) renderActivePills() string {
 	var parts []string
 	for _, f := range m.filters {
 		parts = append(parts, style.FilterPill.Render(formatFilterLabel(f)))
+	}
+	if m.sort != nil {
+		arrow := "↑"
+		if m.sort.Desc {
+			arrow = "↓"
+		}
+		parts = append(parts, style.FilterPillSelected.Render(m.sort.Column+" "+arrow))
+	}
+	if !m.columns.IsDefault(m.ds.Name) {
+		visible, total := m.columns.CountVisible(m.ds.Name)
+		parts = append(parts, style.FilterPillSelected.Render(fmt.Sprintf("cols %d/%d", visible, total)))
 	}
 	return strings.Join(parts, " ")
 }

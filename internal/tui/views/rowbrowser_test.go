@@ -875,7 +875,7 @@ func TestRowBrowserModel_Sort_ViewIndicator(t *testing.T) {
 	}
 }
 
-func TestRowBrowserModel_Sort_StatusLine(t *testing.T) {
+func TestRowBrowserModel_Sort_PillVisible(t *testing.T) {
 	ds := dataset.Dataset{Name: "users", Table: "users"}
 	m := newModel(ds)
 	result := makeResult(1, 1, 1,
@@ -883,11 +883,12 @@ func TestRowBrowserModel_Sort_StatusLine(t *testing.T) {
 		[]map[string]any{{"price": 9.99}},
 	)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 
-	sl := m.StatusLine()
-	if !strings.Contains(sl, "price") {
-		t.Errorf("StatusLine %q missing sort column name", sl)
+	v := m.View()
+	if !strings.Contains(v, "price") || !strings.Contains(v, "↑") {
+		t.Errorf("View missing sort pill (price ↑), got:\n%s", v)
 	}
 }
 

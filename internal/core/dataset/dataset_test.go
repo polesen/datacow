@@ -420,6 +420,91 @@ func runExecutorTests(t *testing.T, client db.Client) {
 			t.Error("expected error when both SkipCount and OnlyCount are set")
 		}
 	})
+
+	t.Run("Query_columns_projection_table", func(t *testing.T) {
+		result, err := ex.Query(ctx, ds, dataset.QueryOptions{
+			Page:     1,
+			PageSize: 10,
+			Columns:  []string{"id", "name"},
+		})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		if len(result.Columns) != 2 {
+			t.Errorf("expected 2 columns, got %d", len(result.Columns))
+		}
+		if result.Columns[0].Name != "id" || result.Columns[1].Name != "name" {
+			t.Errorf("unexpected columns: %v", result.Columns)
+		}
+		for _, row := range result.Rows {
+			if _, ok := row["price"]; ok {
+				t.Error("price should not be present in projected result")
+			}
+			if _, ok := row["id"]; !ok {
+				t.Error("id should be present in projected result")
+			}
+		}
+	})
+
+	t.Run("Query_columns_empty_selects_all", func(t *testing.T) {
+		result, err := ex.Query(ctx, ds, dataset.QueryOptions{
+			Page:     1,
+			PageSize: 10,
+			Columns:  nil,
+		})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		// ds_products has 4 columns: id, name, price, tag
+		if len(result.Columns) < 4 {
+			t.Errorf("expected all columns, got %d", len(result.Columns))
+		}
+	})
+
+	t.Run("Query_columns_projection_sql_dataset", func(t *testing.T) {
+		sqlDS := dataset.Dataset{
+			Name: "all_products",
+			SQL:  "SELECT id, name, price, tag FROM ds_products",
+		}
+		result, err := ex.Query(ctx, sqlDS, dataset.QueryOptions{
+			Page:     1,
+			PageSize: 10,
+			Columns:  []string{"id", "name"},
+		})
+		if err != nil {
+			t.Fatalf("Query sql dataset with columns: %v", err)
+		}
+		if len(result.Columns) != 2 {
+			t.Errorf("expected 2 columns, got %d", len(result.Columns))
+		}
+		for _, row := range result.Rows {
+			if _, ok := row["price"]; ok {
+				t.Error("price should not be present in projected result")
+			}
+		}
+	})
+
+	t.Run("Query_columns_unknown_rejected", func(t *testing.T) {
+		_, err := ex.Query(ctx, ds, dataset.QueryOptions{
+			Page:     1,
+			PageSize: 10,
+			Columns:  []string{"nonexistent"},
+		})
+		if err == nil {
+			t.Error("expected error for unknown column")
+		}
+	})
+
+	t.Run("Query_columns_injection_rejected", func(t *testing.T) {
+		_, err := ex.Query(ctx, ds, dataset.QueryOptions{
+			Page:     1,
+			PageSize: 10,
+			Columns:  []string{"id; DROP TABLE ds_products; --"},
+		})
+		if err == nil {
+			t.Error("expected error for injection attempt in column name")
+		}
+	})
 }
 
 // stringVal coerces a row value to string for comparison.

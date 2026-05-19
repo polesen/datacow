@@ -54,6 +54,19 @@ func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*Q
 		return nil, err
 	}
 
+	// Project cols to the requested subset, preserving order.
+	resultCols := cols
+	if len(opts.Columns) > 0 {
+		colByName := make(map[string]db.Column, len(cols))
+		for _, c := range cols {
+			colByName[c.Name] = c
+		}
+		resultCols = make([]db.Column, len(opts.Columns))
+		for i, name := range opts.Columns {
+			resultCols[i] = colByName[name]
+		}
+	}
+
 	page := opts.Page
 	if page < 1 {
 		page = 1
@@ -89,7 +102,7 @@ func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*Q
 			totalPages = 1
 		}
 		return &QueryResult{
-			Columns:    cols,
+			Columns:    resultCols,
 			Rows:       nil,
 			Page:       page,
 			PageSize:   pageSize,
@@ -100,7 +113,8 @@ func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*Q
 
 	n := len(args) + 1
 	limitSQL := " LIMIT " + e.client.Placeholder(n) + " OFFSET " + e.client.Placeholder(n+1)
-	dataSQL := "SELECT * FROM " + from + where + order + limitSQL
+	selectCols := e.buildSelectList(opts.Columns)
+	dataSQL := "SELECT " + selectCols + " FROM " + from + where + order + limitSQL
 
 	if opts.SkipCount {
 		// Fetch one extra row to detect whether another page exists.
@@ -114,7 +128,7 @@ func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*Q
 			rows = rows[:pageSize]
 		}
 		return &QueryResult{
-			Columns:  cols,
+			Columns:  resultCols,
 			Rows:     rows,
 			Page:     page,
 			PageSize: pageSize,
@@ -157,7 +171,7 @@ func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*Q
 	hasMore := page < totalPages
 
 	return &QueryResult{
-		Columns:    cols,
+		Columns:    resultCols,
 		Rows:       rows,
 		Page:       page,
 		PageSize:   pageSize,
@@ -219,7 +233,7 @@ func (e *Executor) buildWhere(filters []Filter, startN int) (string, []any) {
 	return " WHERE " + strings.Join(parts, " AND "), args
 }
 
-// validateOptions checks that all filter/sort column names are safe identifiers
+// validateOptions checks that all filter/sort/column names are safe identifiers
 // and exist in the dataset schema.
 func (e *Executor) validateOptions(opts QueryOptions, colSet map[string]bool) error {
 	for _, f := range opts.Filters {
@@ -241,7 +255,24 @@ func (e *Executor) validateOptions(opts QueryOptions, colSet map[string]bool) er
 			return fmt.Errorf("unknown sort column %q", opts.Sort.Column)
 		}
 	}
+	for _, c := range opts.Columns {
+		if !identRe.MatchString(c) {
+			return fmt.Errorf("invalid column name %q", c)
+		}
+		if !colSet[c] {
+			return fmt.Errorf("unknown column %q", c)
+		}
+	}
 	return nil
+}
+
+// buildSelectList returns the SQL select list for the given column names.
+// An empty slice returns "*".
+func (e *Executor) buildSelectList(cols []string) string {
+	if len(cols) == 0 {
+		return "*"
+	}
+	return strings.Join(cols, ", ")
 }
 
 // ForeignKeys returns FK relationships for the given table.

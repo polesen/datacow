@@ -57,7 +57,7 @@ A new Bubble Tea component in `internal/tui/views/columnpicker.go`. It receives 
 ```
 ┌─ Columns ────────────────────────────────┐
 │  Space toggle · J/K reorder              │
-│  a select all · r reset · Enter confirm  │
+│  a all · d none · r reset · Enter confirm│
 │                                           │
 │  [✓] id                                   │
 │  [✓] name                                 │
@@ -72,15 +72,24 @@ A new Bubble Tea component in `internal/tui/views/columnpicker.go`. It receives 
 - `Space` toggles visibility of the focused column.
 - `J`/`K` moves the focused column down/up (reorder).
 - `a` selects all columns.
+- `d` deselects all columns (useful for wide tables: clear everything, then enable only what you need).
 - `r` resets to all-visible, original schema order.
 - `Enter` applies, closes, and triggers a re-fetch with the new `QueryOptions.Columns`.
 - `Esc` cancels without re-fetching.
 
 At least one column must remain visible. Confirming with zero visible columns shows an inline error `"at least one column required"` and keeps the overlay open.
 
-### Status bar
+### Pill bar
 
-When a non-default projection is active, the status bar shows `cols: N/M` (visible / total). Not shown when all columns are selected in schema order.
+Active view settings appear as pills in a row immediately above the table data (same bar as filter pills):
+
+- **Filter pills** (purple) — one per active filter condition, unchanged.
+- **Sort pill** (blue) — `name ↑` or `name ↓`, shown whenever a sort is active.
+- **Cols pill** (blue) — `cols N/M`, shown when a non-default column projection is active.
+
+Nothing is shown when all columns are selected in schema order and no sort is active.
+
+`C` is also included in the bottom shortcut bar (`s sort  C cols  e export`) so the feature is discoverable without opening the help overlay.
 
 ### Persistence
 
@@ -92,10 +101,10 @@ Session-only — not persisted to disk. Each dataset (`ds.Name`) has its own ind
 - [ ] Empty/nil `Columns` produces `SELECT *` (no behaviour change for existing callers).
 - [ ] Works for both table datasets (direct SELECT) and SQL datasets (wrapping subquery).
 - [ ] `C` opens the column picker; `Esc` cancels without re-fetching.
-- [ ] `Space` toggles visibility; `J`/`K` reorder; `a` selects all; `r` resets.
+- [ ] `Space` toggles visibility; `J`/`K` reorder; `a` selects all; `d` deselects all; `r` resets.
 - [ ] `Enter` applies and triggers a re-fetch; the row browser reflects the new column set.
 - [ ] Confirming with zero visible columns shows `"at least one column required"` and keeps the overlay open.
-- [ ] Status bar shows `cols: N/M` when a non-default projection is active.
+- [ ] A `cols N/M` pill appears above the table (in the pill bar) when a non-default projection is active; a sort pill (`name ↑/↓`) appears when sort is active. Both use the blue `FilterPillSelected` style to distinguish from filter pills.
 - [ ] Column selection is preserved when navigating within a session; each dataset is independent.
 - [ ] Export (`e`) uses the active column projection — only selected columns appear in the CSV/Excel output.
 - [ ] `C` key added to `keys.Map`, wired in `Update()`, listed in `helpoverlay.go`.

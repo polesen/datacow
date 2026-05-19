@@ -1318,3 +1318,87 @@ func TestApp_ReverseFKDrill_SmokeTest(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
 
+// TestApp_ColumnPicker_SmokeTest verifies the end-to-end column picker flow:
+// open a table with multiple columns → press C → hide one column → confirm →
+// verify the hidden column header is absent and the SQL pane shows a projected SELECT.
+func TestApp_ColumnPicker_SmokeTest(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	const tableName = "colpicker_smoke"
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS "+tableName)
+		_ = client.Close()
+	}()
+
+	_, _ = client.Query(ctx, "DROP TABLE IF EXISTS "+tableName)
+	if _, err := client.Query(ctx, "CREATE TABLE "+tableName+` (
+		id      SERIAL PRIMARY KEY,
+		keep_me TEXT NOT NULL,
+		hide_me TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	if _, err := client.Query(ctx, "INSERT INTO "+tableName+" (keep_me, hide_me) VALUES ('visible', 'secret')"); err != nil {
+		t.Fatalf("insert fixture: %v", err)
+	}
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	// Wait for the table to appear in the table list.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), tableName)
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Navigate to the table and open it.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Wait for the row browser to load the table (all 3 columns visible).
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "hide_me") && strings.Contains(s, "keep_me")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Press C to open the column picker.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "Space toggle")
+	}, teatest.WithDuration(5*time.Second))
+
+	// Navigate down twice to reach "hide_me" (order: id, keep_me, hide_me).
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+	// Space hides the focused column.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	// Enter confirms.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Wait for the re-fetch to complete with the projected result.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		// keep_me should be visible; hide_me should be absent from column headers.
+		return strings.Contains(s, "keep_me") && !strings.Contains(s, "hide_me")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Open the SQL pane to verify the projected SELECT was issued.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		// The query log should show a SELECT with id and keep_me, but not hide_me.
+		return strings.Contains(s, "SELECT") && strings.Contains(s, "keep_me") && !strings.Contains(s, "hide_me")
+	}, teatest.WithDuration(5*time.Second))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
