@@ -467,20 +467,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if a.maximized {
 						a.pushMaximizedSizes()
 					}
-					return a, nil
+					a.tableList, cmd = a.tableList.OnFocusGained()
+					return a, cmd
 				case "2":
-					if a.focus == focusTables {
-						a.tableList = a.tableList.ClearFilter()
-					}
 					a.focus = focusRowBrowser
 					if a.maximized {
 						a.pushMaximizedSizes()
 					}
-					return a, nil
-				case "3":
-					if a.focus == focusTables {
-						a.tableList = a.tableList.ClearFilter()
+					if a.rowBrowserReady {
+						a.rowBrowser, cmd = a.rowBrowser.OnFocusGained()
 					}
+					return a, cmd
+				case "3":
 					if a.maximized {
 						a.maximized = false
 						a.pushNormalSizes()
@@ -510,22 +508,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if key.Matches(msg, a.keys.SwitchFocus) {
 				if !tableListBlocksKeys &&
 					(!a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey()) {
-					if a.focus == focusTables {
-						a.tableList = a.tableList.ClearFilter()
-					}
 					a.focus = focus((int(a.focus) + 1) % 3)
-					return a, nil
+					if a.focus == focusTables {
+						a.tableList, cmd = a.tableList.OnFocusGained()
+					} else if a.focus == focusRowBrowser && a.rowBrowserReady {
+						a.rowBrowser, cmd = a.rowBrowser.OnFocusGained()
+					}
+					return a, cmd
 				}
 			}
 
 			if key.Matches(msg, a.keys.SwitchFocusBack) {
 				if !tableListBlocksKeys &&
 					(!a.rowBrowserReady || a.focus != focusRowBrowser || !a.rowBrowser.NeedsTabKey()) {
-					if a.focus == focusTables {
-						a.tableList = a.tableList.ClearFilter()
-					}
 					a.focus = focus((int(a.focus) + 2) % 3)
-					return a, nil
+					if a.focus == focusTables {
+						a.tableList, cmd = a.tableList.OnFocusGained()
+					} else if a.focus == focusRowBrowser && a.rowBrowserReady {
+						a.rowBrowser, cmd = a.rowBrowser.OnFocusGained()
+					}
+					return a, cmd
 				}
 			}
 
@@ -547,7 +549,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if !inModalInput && a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 				if ds := a.tableList.SelectedDataset(); ds != nil {
-					a.tableList = a.tableList.ClearFilter()
 					a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *ds, a.pageSizeRegistry, a.schemaCache)
 					sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 					a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
@@ -563,7 +564,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.rowBrowserReady && !a.rowBrowser.NeedsBackKey() &&
 				a.rowBrowser.ColCursor() == 0 {
 				a.focus = focusTables
-				return a, nil
+				a.tableList, cmd = a.tableList.OnFocusGained()
+				return a, cmd
 			}
 
 			// Esc from row browser with nothing to collapse → exit maximized or focus table list.
@@ -574,8 +576,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.pushNormalSizes()
 				} else {
 					a.focus = focusTables
+					a.tableList, cmd = a.tableList.OnFocusGained()
 				}
-				return a, nil
+				return a, cmd
 			}
 
 			// Esc from table list while filter is active → handled by tableList.Update below.
@@ -624,7 +627,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		if msg.Dataset != nil {
-			a.tableList = a.tableList.ClearFilter()
 			a.tableList, _ = a.tableList.SelectByName(msg.Dataset.Name)
 			a.rowBrowser = views.NewRowBrowserModel(a.keys, a.executor, a.exporter, *msg.Dataset, a.pageSizeRegistry, a.schemaCache)
 			sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
@@ -930,6 +932,10 @@ func (a *App) renderStatusBar() string {
 		return a.renderRowBrowserStatusBar(runningPart)
 	}
 
+	if a.screen == screenSplit && a.focus == focusTables {
+		return a.renderTableListStatusBar(runningPart)
+	}
+
 	var bindings []key.Binding
 	switch {
 	case a.screen == screenCellViewer:
@@ -944,21 +950,14 @@ func (a *App) renderStatusBar() string {
 		bindings = nil // footer rendered inside the TableInfoModel.View()
 	case a.screen == screenGoto:
 		bindings = nil // hint is rendered inside the GotoModel.View()
-	case a.focus == focusTables:
-		bindings = a.keys.TableListHelp()
 	case a.focus == focusSQL:
 		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.SwitchFocus}
 	default:
 		bindings = a.keys.ShortHelp()
 	}
-	parts := make([]string, 0, len(bindings)+3)
+	parts := make([]string, 0, len(bindings)+2)
 	if runningPart != "" {
 		parts = append(parts, runningPart)
-	}
-	if a.screen == screenSplit && a.focus == focusTables {
-		if fs := a.tableList.FilterStatus(); fs != "" {
-			parts = append(parts, style.StatusDesc.Render(fs))
-		}
 	}
 	if a.screen == screenSplit && a.maximized {
 		parts = append(parts, style.StatusKey.Render("z")+style.StatusDesc.Render(" restore"))
@@ -967,6 +966,25 @@ func (a *App) renderStatusBar() string {
 		parts = append(parts, style.StatusKey.Render(b.Help().Key)+style.StatusDesc.Render(" "+b.Help().Desc))
 	}
 	return style.StatusBar.Width(a.width).Render(strings.Join(parts, "  "))
+}
+
+func (a *App) renderTableListStatusBar(runningPart string) string {
+	keyParts := []string{}
+	if a.maximized {
+		keyParts = append(keyParts, style.StatusKey.Render("z")+style.StatusDesc.Render(" restore"))
+	}
+	for _, b := range a.keys.TableListHelp() {
+		keyParts = append(keyParts, style.StatusKey.Render(b.Help().Key)+style.StatusDesc.Render(" "+b.Help().Desc))
+	}
+	right := strings.Join(keyParts, "  ")
+
+	gap := a.width - lipgloss.Width(runningPart) - lipgloss.Width(right) - 2
+	if gap < 1 {
+		gap = 1
+	}
+
+	content := runningPart + strings.Repeat(" ", gap) + right
+	return style.StatusBar.Width(a.width).Render(content)
 }
 
 func (a *App) renderRowBrowserStatusBar(runningPart string) string {

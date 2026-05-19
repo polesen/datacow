@@ -75,6 +75,9 @@ type filterMatch struct {
 	bySub  bool // matched a column, FK target, or index name from the schema cache
 }
 
+// filterFlashExpiredMsg is sent when the 400ms filter-bar flash timer expires.
+type filterFlashExpiredMsg struct{}
+
 type TableListModel struct {
 	datasets        []dataset.Dataset
 	tree            []treeNode
@@ -93,6 +96,7 @@ type TableListModel struct {
 	filterInputOpen bool
 	filterQuery     string
 	filterInput     textinput.Model
+	filterFlashing  bool
 	savedCursorName string // cursor name saved when filter first opened, restored on Esc
 }
 
@@ -225,6 +229,10 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 		m.err = msg.Err
 		return m, nil
 
+	case filterFlashExpiredMsg:
+		m.filterFlashing = false
+		return m, nil
+
 	case tea.KeyMsg:
 		if m.loading || m.err != nil {
 			return m, nil
@@ -239,6 +247,10 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 			case msg.Type == tea.KeyEnter:
 				m.filterInputOpen = false
 				m.filterInput.Blur()
+				if m.filterQuery != "" {
+					m.filterFlashing = true
+					return m, tea.Tick(400*time.Millisecond, func(time.Time) tea.Msg { return filterFlashExpiredMsg{} })
+				}
 				return m, nil
 			case key.Matches(msg, m.keys.Up):
 				visible := m.visibleDatasetIndices()
@@ -355,6 +367,16 @@ func (m TableListModel) FilterStatus() string {
 
 // ClearFilter resets any held filter and closes the input. Safe to call from app.go.
 func (m TableListModel) ClearFilter() TableListModel { return m.clearFilter() }
+
+// OnFocusGained should be called whenever the tables pane gains keyboard focus.
+// If a filter is held, it triggers a 400ms attention flash on the filter bar.
+func (m TableListModel) OnFocusGained() (TableListModel, tea.Cmd) {
+	if m.filterQuery != "" {
+		m.filterFlashing = true
+		return m, tea.Tick(400*time.Millisecond, func(time.Time) tea.Msg { return filterFlashExpiredMsg{} })
+	}
+	return m, nil
+}
 
 // OnCacheReady re-applies the filter now that the schema cache has data.
 // Should be called from app.go when schemaCacheReadyMsg arrives.
@@ -755,16 +777,26 @@ func (m TableListModel) View() string {
 		return ""
 	}
 
-	// Build filter footer (1 line when input is open).
+	// Build filter footer (1 line when filter is open or held).
 	var footer string
 	listHeight := m.height
-	if m.filterInputOpen {
+	if m.filterInputOpen || m.filterQuery != "" {
 		listHeight = max(1, m.height-1)
-		hint := ""
-		if m.schemaCache == nil || !m.schemaCache.Ready() {
-			hint = style.Muted.Render("  (schema loading — name match only)")
+		if m.filterInputOpen {
+			hint := ""
+			if m.schemaCache == nil || !m.schemaCache.Ready() {
+				hint = style.Muted.Render("  (schema loading — name match only)")
+			}
+			footer = style.FilterBar.Width(m.width).Render(m.filterInput.View() + hint)
+		} else {
+			matches := m.computeFilter()
+			barText := fmt.Sprintf("/ %q  %d/%d  ·  / edit  ·  esc clear", m.filterQuery, len(matches), len(m.datasets))
+			barStyle := style.FilterBarHeld
+			if m.filterFlashing {
+				barStyle = style.FilterBarFlash
+			}
+			footer = barStyle.Width(m.width).Render(barText)
 		}
-		footer = style.FilterBar.Width(m.width).Render(m.filterInput.View() + hint)
 	}
 
 	if m.loading {

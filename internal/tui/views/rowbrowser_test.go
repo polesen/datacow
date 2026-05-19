@@ -641,13 +641,169 @@ func TestRowBrowserModel_LocalSearch_FilteredView(t *testing.T) {
 		t.Error("filtered view must not show Bob")
 	}
 
-	// n advances to next match
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-	// N goes back — no crash
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
+	// arrow keys navigate matches — no crash and input stays closed
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 
 	if m.IsLocalSearchInputActive() {
 		t.Error("search input should be closed after Enter")
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_FlashOnCommit(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 2,
+		[]db.Column{{Name: "name"}},
+		[]map[string]any{{"name": "Alice"}, {"name": "Bob"}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "alice" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if cmd == nil {
+		t.Fatal("Enter with active query must return a tick cmd for the flash")
+	}
+	if !m.IsLocalSearchFlashing() {
+		t.Error("localSearchFlashing must be true immediately after Enter")
+	}
+
+	// Simulate flash expiry.
+	m, _ = m.Update(views.LocalSearchFlashExpiredMsgForTest())
+	if m.IsLocalSearchFlashing() {
+		t.Error("localSearchFlashing must be false after expiry message")
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_OnFocusGained_Flashes(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Open, type, commit (hold the search).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "foo" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Expire the commit flash so state is calm.
+	m, _ = m.Update(views.LocalSearchFlashExpiredMsgForTest())
+
+	m2, cmd := m.OnFocusGained()
+	if cmd == nil {
+		t.Error("OnFocusGained with held search must return a tick cmd")
+	}
+	if !m2.IsLocalSearchFlashing() {
+		t.Error("OnFocusGained must set localSearchFlashing=true when search is held")
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_OnFocusGained_NoSearch(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	_, cmd := m.OnFocusGained()
+	if cmd != nil {
+		t.Error("OnFocusGained with no search must return nil cmd")
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_HeldBarVisible(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 2,
+		[]db.Column{{Name: "name"}},
+		[]map[string]any{{"name": "Alice"}, {"name": "Bob"}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "alice" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.IsLocalSearchInputActive() {
+		t.Fatal("expected search input closed after Enter")
+	}
+	v := m.View()
+	if !strings.Contains(v, `"alice"`) {
+		t.Errorf("held search bar must show quoted query, got:\n%s", v)
+	}
+	if !strings.Contains(v, "esc clear") {
+		t.Errorf("held search bar must show 'esc clear' hint, got:\n%s", v)
+	}
+	if !strings.Contains(v, "↑/↓ navigate") {
+		t.Errorf("held search bar must show '↑/↓ navigate' hint, got:\n%s", v)
+	}
+}
+
+func TestRowBrowserModel_LocalSearch_ArrowNavigation(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 3,
+		[]db.Column{{Name: "name"}},
+		[]map[string]any{
+			{"name": "Alice"},
+			{"name": "Bob"},
+			{"name": "Alice2"},
+		},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// commit a search that matches two rows
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "alice" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// initial cursor is at match 0 — Alice is selected, Alice2 also visible
+	v := m.View()
+	if !strings.Contains(v, "Alice") {
+		t.Error("first match (Alice) must be visible initially")
+	}
+
+	// Down should advance to match 1
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	v = m.View()
+	if !strings.Contains(v, "Alice2") {
+		t.Error("second match (Alice2) must be visible after Down")
+	}
+
+	// Up should go back to match 0 — no crash
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.IsLocalSearchInputActive() {
+		t.Error("search input must stay closed during arrow navigation")
+	}
+}
+
+func TestRowBrowserModel_StatusLine_LocalSearchHeld(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "alice" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sl := m.StatusLine()
+	if strings.Contains(sl, "search:") {
+		t.Errorf("StatusLine must not include search text when held (bar is in the view): %q", sl)
+	}
+	if !strings.Contains(sl, "users") {
+		t.Errorf("StatusLine must show dataset name when search is held, got: %q", sl)
 	}
 }
 
