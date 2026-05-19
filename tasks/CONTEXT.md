@@ -8,7 +8,7 @@ drafts/   →   ready/   →   done/
 
 - **`drafts/`** — ideas under consideration; not yet scoped or approved for implementation
 - **`ready/`** — fully scoped, ready to hand to Claude; `run-task.sh` picks tasks from here
-- **`done/`** — merged; file moved here after PR is merged
+- **`done/`** — merged; file moved here after PR is merged, renamed to `NNNNNN-<original-name>.md` where `NNNNNN` is the next zero-padded 6-digit sequence number (e.g. `000029-my-feature.md`)
 
 ## Writing a Task
 

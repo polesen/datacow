@@ -228,6 +228,8 @@ Each task runs on its own feature branch (`task/M3-dataset-layer` etc.), created
 
 Never commit directly to `main` or push to `main`. If the current branch is `main`, create a feature branch before committing.
 
+When a PR is merged and its task file is moved from `ready/` to `done/`, prefix the filename with the next 6-digit zero-padded sequence number: `NNNNNN-<original-name>.md` (e.g. `000029-my-feature.md`). Check `ls tasks/done/` and increment the highest existing number. Update the Done list in `tasks/README.md` at the same time.
+
 ## Definition of Done
 
 See `TASKS/definition-of-done.md`. Invoke the `/done` skill — it runs all checks in sequence and stops on the first failure.
