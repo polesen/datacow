@@ -13,6 +13,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ```
 
 - [Multi-Column Sort](ready/multi-column-sort.md)
+- [SQL Dataset Editor with Completions](ready/sql-dataset-editor.md)
 
 ## Done
 
