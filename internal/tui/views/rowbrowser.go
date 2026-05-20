@@ -545,13 +545,25 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		return m, cmd
 
 	case RowsLoadedMsg:
-		return m.applyLoadedResult((*dataset.QueryResult)(msg)), nil
+		wasApplied := m.presetApplied
+		m = m.applyLoadedResult((*dataset.QueryResult)(msg))
+		if !wasApplied && m.presetApplied {
+			m.loading = true
+			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
+		}
+		return m, nil
 
 	case rowsLoadedInternal:
 		if msg.seq != m.drillSeq {
 			return m, nil
 		}
-		return m.applyLoadedResult(msg.result), nil
+		wasApplied := m.presetApplied
+		m = m.applyLoadedResult(msg.result)
+		if !wasApplied && m.presetApplied {
+			m.loading = true
+			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
+		}
+		return m, nil
 
 	case countLoadedMsg:
 		if msg.seq != m.drillSeq {

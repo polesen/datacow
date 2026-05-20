@@ -295,22 +295,27 @@ func TestAC_RB01_PresetColumnsApplied(t *testing.T) {
 		[]db.Column{{Name: "id"}, {Name: "name"}, {Name: "extra"}},
 		[]map[string]any{{"id": 1, "name": "Alice", "extra": "x"}},
 	)
-	m, _ = m.Update(views.RowsLoadedMsg(initial))
+	var cmd tea.Cmd
+	m, cmd = m.Update(views.RowsLoadedMsg(initial))
 
-	// "cols 2/3" pill must be visible (registry applied).
-	v := m.View()
-	if !strings.Contains(v, "cols 2/3") {
-		t.Errorf("expected 'cols 2/3' pill after preset applied, got:\n%s", v)
+	// A non-nil reload command must be returned so the real executor will re-fetch
+	// with the projected columns. (executor is nil in this unit test so no result follows.)
+	if cmd == nil {
+		t.Error("expected non-nil reload command after column preset applied, got nil")
 	}
 
-	// Simulate re-fetch with projected result (only 2 columns).
+	// Simulate the projected re-fetch that the real executor would deliver.
+	// The "cols 2/3" pill and absent "extra" column are only visible after this second result.
 	projected := makeResult(1, 1, 1,
 		[]db.Column{{Name: "id"}, {Name: "name"}},
 		[]map[string]any{{"id": 1, "name": "Alice"}},
 	)
 	m, _ = m.Update(views.RowsLoadedMsg(projected))
 
-	v = m.View()
+	v := m.View()
+	if !strings.Contains(v, "cols 2/3") {
+		t.Errorf("expected 'cols 2/3' pill after projected re-fetch, got:\n%s", v)
+	}
 	if strings.Contains(v, "extra") {
 		t.Errorf("column 'extra' must be absent after projected re-fetch, got:\n%s", v)
 	}

@@ -174,7 +174,13 @@ func TestAC_AC03_NavigateToPerspective(t *testing.T) {
 	client, cleanup := connectAndSetupACTable(t, dsn, tableName)
 	defer cleanup()
 
-	// Pre-seed a perspective with a filter.
+	// Insert a second row that must NOT appear after the filter is applied.
+	ctx := context.Background()
+	if _, err := client.Query(ctx, "INSERT INTO "+tableName+" (val) VALUES ('world')"); err != nil {
+		t.Fatalf("insert second row: %v", err)
+	}
+
+	// Pre-seed a perspective with a filter that matches only the first row.
 	configPath := filepath.Join(t.TempDir(), "datacow.yaml")
 	p := config.PerspectiveConfig{
 		Name: "Filtered View",
@@ -203,7 +209,7 @@ func TestAC_AC03_NavigateToPerspective(t *testing.T) {
 		return strings.Contains(string(bts), tableName)
 	}, teatest.WithDuration(acWait), teatest.WithCheckInterval(acCheckInterval))
 
-	// Right — expand the table (collapsed + expandable → expand).
+	// Right — expand the table.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRight})
 
 	// Wait for the perspective sub-line to appear.
@@ -211,18 +217,18 @@ func TestAC_AC03_NavigateToPerspective(t *testing.T) {
 		return strings.Contains(string(bts), "Filtered View")
 	}, teatest.WithDuration(5*time.Second))
 
-	// Down twice — the auto-discovered and config dataset entries for the same table
-	// both appear in the list, so two Down presses are needed to reach the perspective.
-	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+	// One Down brings the cursor from the table to the perspective.
+	// (Deduplication means the same table no longer appears twice.)
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 
 	// Enter — open the perspective in the row browser.
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
-	// Wait for the row browser to load the perspective with the filter pill.
+	// The row browser must show the filter pill AND the matching row ("hello")
+	// while the non-matching row ("world") must be absent — proving the filter runs.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
-		return strings.Contains(s, "val") && strings.Contains(s, "hello")
+		return strings.Contains(s, "hello") && !strings.Contains(s, "world")
 	}, teatest.WithDuration(acWait))
 
 	_ = tm.Quit()
@@ -264,12 +270,11 @@ func TestAC_AC04_PDisabledInPerspective(t *testing.T) {
 	}, teatest.WithDuration(acWait), teatest.WithCheckInterval(acCheckInterval))
 
 	// Expand, navigate to perspective, open it.
-	// Two Down presses needed: auto-discovered and config entries both appear for the same table.
+	// One Down brings cursor from the table to the perspective (no duplicate entry).
 	tm.Send(tea.KeyMsg{Type: tea.KeyRight})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "No-Edit View")
 	}, teatest.WithDuration(5*time.Second))
-	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
