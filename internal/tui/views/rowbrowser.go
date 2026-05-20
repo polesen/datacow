@@ -1595,7 +1595,7 @@ func (m RowBrowserModel) refByColSetFromCache() map[string]bool {
 // NeedsBackKey returns true when the row browser is consuming the Back key
 // internally, so the app should not intercept it.
 func (m RowBrowserModel) NeedsBackKey() bool {
-	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0 || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker || m.mode == modeSavePerspective
+	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0 || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker || m.mode == modeSavePerspective || m.mode == modeSortManager
 }
 
 // NeedsTabKey returns true when the row browser is consuming Tab internally
