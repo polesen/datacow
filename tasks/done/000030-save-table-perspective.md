@@ -84,6 +84,8 @@ type QueryOptionsPreset struct {
 
 `dataset.Resolver` already converts `DatasetConfig` entries into `Dataset` values. Extend it to also resolve `Perspectives` into additional `Dataset` entries of kind `KindPerspective`, ordered immediately after their parent table in the flat list.
 
+**Deduplication:** when a config dataset is a plain table reference (`Name == Table`, no SQL) for a table that was already auto-discovered, the resolver must not add a second parent entry. Instead, its perspectives are inserted immediately after the auto-discovered entry. This prevents the same table from appearing twice in the schema explorer after a perspective is saved (the saved config entry would otherwise duplicate the auto-discovered row).
+
 ### TUI — `tui.Config`
 
 Add `ConfigPath string` to `internal/tui/app.go`'s `Config` struct. Empty string = zero-config mode (no file loaded yet). `cmd/main.go` passes the path it actually loaded from, or `""`.
@@ -150,6 +152,8 @@ When a `KindPerspective` dataset is opened:
 4. The pill bar shows filter/sort/cols pills as normal — they reflect the active preset state.
 5. `P` key is **available** when the current dataset is `KindPerspective`. The overlay is pre-filled with the current perspective name so the user can confirm (overwrite) or rename (creates a sibling perspective). `AppendPerspective` is an upsert-by-name, so confirming with the same name updates the existing perspective.
 
+**Two-phase column load:** `loadPageCmd` captures `VisibleColumns` at call time, before the column registry is seeded. On the first result, `applyLoadedResult` seeds the registry and applies the column preset. If the preset changed the visible column set, a second `loadPageCmd` is issued automatically so the row browser displays the projected columns. Filters and sort are pre-seeded before the first query and require no second load.
+
 ## UX Summary
 
 ```
@@ -194,6 +198,7 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern (same convention a
 - CF05: `AppendPerspective` upsert — same name replaces existing; different name appends alongside. After upsert, reading the file back via `Load()` returns exactly the expected perspectives list.
 - CF06: `Save` writes atomically — no `.tmp` file remains after a successful call; file contents are valid YAML parseable by `Load()`.
 - CF07: `Resolver` with a table dataset that has two perspectives emits them as `KindPerspective` entries immediately after the parent in the flat list; `Preset.Columns`, `Preset.Filters`, and `Preset.Sort` match the config values.
+- CF08: When a config dataset is a plain table reference (`Name == Table`, no SQL) for a table already auto-discovered, `Resolver.Resolve()` deduplicates — the table appears only once in the output (the auto-discovered entry), and its perspectives are inserted immediately after it. No duplicate parent entry is created.
 
 ### SP — Save-perspective overlay (view unit tests in `saveperspective_test.go`)
 
@@ -212,7 +217,7 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern (same convention a
 
 ### RB — Row browser pre-seeding (view unit tests in `rowbrowser_test.go`)
 
-- RB01: Opening a `KindPerspective` dataset with `Preset.Columns = ["id", "name"]` and a 3-column result → view contains `"cols 2/3"` pill; `"extra"` column header is absent from the rendered table.
+- RB01: Opening a `KindPerspective` dataset with `Preset.Columns = ["id", "name"]` and a 3-column result uses a two-phase load: after the first `RowsLoadedMsg` seeds the registry and applies the preset, a non-nil reload command is returned; after the second `RowsLoadedMsg` (projected result), the view contains `"cols 2/3"` pill and the `"extra"` column header is absent.
 - RB02: Opening a `KindPerspective` dataset with `Preset.Filters = [{Column:"result", Operator:"!=", Value:200}]` → view contains a filter pill with `"result"` and `"200"` (or `"!="`) visible.
 - RB03: Opening a `KindPerspective` dataset with `Preset.Sort = &Sort{Column:"timestamp", Desc:true}` → view contains the sort pill with `"timestamp"` and a descending indicator (`"↓"`).
 - RB04: Sending `P` key while viewing a `KindPerspective` dataset → `View()` contains `"Save perspective"` and the perspective name (overlay is pre-filled).
@@ -225,6 +230,7 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern (same convention a
 - AC03 (navigate to perspective): After AC02, navigate cursor to the perspective sub-line and press `Enter`. Assert: row browser `View()` contains the filter pill value that was active when saving (proving pre-seeding works end-to-end).
 - AC04 (P pre-filled on perspective): With a perspective open in the row browser, send `P`. Assert: `View()` contains `"Save perspective"` and the perspective name. Confirm with Enter; assert overlay closes and `"Saved to"` appears (perspective is updated).
 - AC05 (zero-config file creation): Start the TUI with `ConfigPath = ""` and a temp dir as CWD. Save a perspective. Assert: `tui.Config.ConfigPath` is non-empty after the save; the file at that path exists and `config.Load()` on it returns the expected `PerspectiveConfig`.
+- AC06 (table list recovery after save): Save a perspective while the row browser has focus. Assert: the table list shows the table name and does not display `"Connecting..."` — verifying that `TablesLoadedMsg` is routed to the table list regardless of which pane has focus.
 
 ## What NOT to Change
 
@@ -233,6 +239,19 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern (same convention a
 - `PageSizeRegistry` — no changes.
 - Filter/sort validation in `QueryOptions` — still validated against full schema, not the perspective's column projection.
 - The `COUNT(*)` subquery — unaffected.
+
+## Implementation Notes
+
+Three bugs were found and fixed during implementation that were not anticipated in the original spec:
+
+**1. Resolver created duplicate parent entries (CF08)**
+When a perspective was saved, `AppendPerspective` wrote a config entry `{Name: tableName, Table: tableName}`. On the next `Resolve()` call, this config entry was added as a second parent in the flat list alongside the auto-discovered entry — causing the table to appear twice in the schema explorer and making navigation to perspectives unreliable (cursor Down would land on the duplicate instead of the perspective). Fixed by deduplication logic in `Resolve()`: a plain table-reference config entry whose table was already auto-discovered is not added as a second parent; its perspectives are merged into the auto-discovered slot.
+
+**2. Column preset not visible after opening a perspective**
+`loadPageCmd` captures `VisibleColumns(ds.Name)` at call time, before the column registry is seeded. Since the registry is empty on first open, the initial query was always `SELECT *`. After `applyLoadedResult` seeded the registry and applied the column preset, the projected columns were never queried. Fixed by detecting the `presetApplied` transition in the `RowsLoadedMsg`/`rowsLoadedInternal` handlers and issuing a second `loadPageCmd` when the preset was just applied.
+
+**3. Table list stuck on "Connecting..." after save while row browser was focused**
+`TablesLoadedMsg`, `ExpansionLoadedMsg`, and `IndexesLoadedMsg` were routed through the focus-based switch in `app.Update`, so they only reached the table list when `focus == focusTables`. Saving from the row browser left focus on the row browser, so `TablesLoadedMsg` was delivered to `rowBrowser.Update()` (a no-op) and the table list stayed in `loading = true` forever. Fixed by handling all three message types explicitly before the focus switch, matching the pattern already used for `schemaCacheReadyMsg`.
 
 ## Definition of Done
 
