@@ -7,8 +7,9 @@ package tui_test
 //   AC01: end-to-end save              → TestAC_AC01_SavePerspectiveEndToEnd
 //   AC02: schema explorer refresh      → TestAC_AC02_SchemaExplorerRefresh
 //   AC03: navigate to perspective      → TestAC_AC03_NavigateToPerspective
-//   AC04: P disabled in perspective    → TestAC_AC04_PDisabledInPerspective
+//   AC04: P pre-filled on perspective  → TestAC_AC04_PPrefilledOnPerspective
 //   AC05: zero-config file creation    → TestAC_AC05_ZeroConfigFileCreation
+//   AC06: table list recovers (not "connecting") after save while row browser focused → TestAC_AC06_TableListRecoveryAfterSave
 
 import (
 	"context"
@@ -364,4 +365,51 @@ func TestAC_AC05_ZeroConfigFileCreation(t *testing.T) {
 	if !found {
 		t.Errorf("perspective 'Zero Config View' not found in saved config at %s: %+v", expectedConfigPath, cfg)
 	}
+}
+
+// AC06: After saving a perspective while the row browser has focus, the table list must
+// recover — it must NOT stay stuck showing "Connecting..." forever.
+// Regression test for the bug where TablesLoadedMsg was only routed when focus==focusTables.
+func TestAC_AC06_TableListRecoveryAfterSave(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	const tableName = "sp_ac06_test"
+	client, cleanup := connectAndSetupACTable(t, dsn, tableName)
+	defer cleanup()
+
+	configPath := filepath.Join(t.TempDir(), "datacow.yaml")
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test", ConfigPath: configPath}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	// Navigate to the table — focus is now on the row browser.
+	navigateToTable(t, tm, tableName)
+
+	// Save a perspective while the row browser has focus.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "Save perspective")
+	}, teatest.WithDuration(5*time.Second))
+	for _, r := range "Recovery View" {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Wait for save to confirm, then flush a fresh frame so the next WaitFor has bytes to read.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), "Saved to")
+	}, teatest.WithDuration(acWait))
+	tm.Send(tea.WindowSizeMsg{Width: 161, Height: 40})
+
+	// The table list must NOT be stuck showing "Connecting..." — it must show the table name.
+	// If the fix is absent, the table list would stay in loading state forever.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, tableName) && !strings.Contains(s, "Connecting")
+	}, teatest.WithDuration(acWait))
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }

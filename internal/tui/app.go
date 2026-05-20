@@ -678,6 +678,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.cacheLoading = false
 		return a, nil
 
+	// These messages are async results from table list background operations.
+	// Route them directly to the table list regardless of which pane has focus,
+	// so that a reload triggered while the row browser is focused still completes.
+	case views.TablesLoadedMsg, views.ExpansionLoadedMsg, views.IndexesLoadedMsg:
+		var tableCmd tea.Cmd
+		a.tableList, tableCmd = a.tableList.Update(msg)
+		return a, tableCmd
+
 	case views.PerspectiveSavedMsg:
 		if a.cfg.ConfigPath == "" {
 			a.cfg.ConfigPath = msg.Path
