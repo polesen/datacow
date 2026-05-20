@@ -27,6 +27,7 @@ func NewResolver(client db.Client, configDatasets []config.DatasetConfig, active
 }
 
 // Resolve returns auto-discovered table datasets followed by config-defined datasets.
+// KindPerspective entries are inserted immediately after their parent dataset.
 func (r *Resolver) Resolve(ctx context.Context) ([]Dataset, error) {
 	entries, err := r.client.ListTables(ctx)
 	if err != nil {
@@ -45,9 +46,43 @@ func (r *Resolver) Resolve(ctx context.Context) ([]Dataset, error) {
 		if cd.SQL != "" {
 			k = KindDataset
 		}
-		datasets = append(datasets, Dataset{Name: cd.Name, Table: cd.Table, SQL: cd.SQL, Kind: k})
+		parent := Dataset{Name: cd.Name, Table: cd.Table, SQL: cd.SQL, Kind: k}
+		datasets = append(datasets, parent)
+		// Append perspectives immediately after their parent.
+		for _, p := range cd.Perspectives {
+			datasets = append(datasets, perspectiveFromConfig(cd, p))
+		}
 	}
 	return datasets, nil
+}
+
+// perspectiveFromConfig converts a PerspectiveConfig into a KindPerspective Dataset.
+func perspectiveFromConfig(cd config.DatasetConfig, p config.PerspectiveConfig) Dataset {
+	preset := &QueryOptionsPreset{
+		Columns: p.Columns,
+		Filters: filtersFromConfig(p.Filters),
+	}
+	if len(p.Sort) > 0 {
+		preset.Sort = &Sort{Column: p.Sort[0].Column, Desc: p.Sort[0].Desc}
+	}
+	return Dataset{
+		Name:        p.Name,
+		Table:       cd.Table,
+		Kind:        KindPerspective,
+		ParentTable: cd.Table,
+		Preset:      preset,
+	}
+}
+
+func filtersFromConfig(fcs []config.FilterConfig) []Filter {
+	if len(fcs) == 0 {
+		return nil
+	}
+	out := make([]Filter, len(fcs))
+	for i, fc := range fcs {
+		out[i] = Filter{Column: fc.Column, Operator: fc.Operator, Value: fc.Value}
+	}
+	return out
 }
 
 func kindFromTableKind(k db.TableKind) Kind {

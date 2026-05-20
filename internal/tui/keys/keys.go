@@ -30,14 +30,15 @@ type Map struct {
 	PrevPage        key.Binding
 	FirstPage       key.Binding
 	LastPage        key.Binding
-	PageSize        key.Binding
-	ViewCell        key.Binding
-	Goto            key.Binding
-	Refresh         key.Binding
-	TableInfo       key.Binding
-	DrillFwd        key.Binding
-	DrillReverse    key.Binding
-	ColumnPicker    key.Binding
+	PageSize         key.Binding
+	ViewCell         key.Binding
+	Goto             key.Binding
+	Refresh          key.Binding
+	TableInfo        key.Binding
+	DrillFwd         key.Binding
+	DrillReverse     key.Binding
+	ColumnPicker     key.Binding
+	SavePerspective  key.Binding
 }
 
 // Default returns the default keybindings.
@@ -144,8 +145,12 @@ func Default() Map {
 			key.WithHelp("G/end", "last page"),
 		),
 		PageSize: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N", "page size"),
+		),
+		SavePerspective: key.NewBinding(
 			key.WithKeys("P"),
-			key.WithHelp("P", "page size"),
+			key.WithHelp("P", "save perspective"),
 		),
 		ViewCell: key.NewBinding(
 			key.WithKeys("v"),
@@ -193,7 +198,7 @@ func (m Map) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{m.Up, m.Down, m.Left, m.Right, m.Enter, m.Back, m.NextPage, m.PrevPage, m.FirstPage, m.LastPage, m.PageSize},
 		{m.QueryFilter, m.LocalSearch, m.QuickFilterCell, m.Sort, m.Export, m.ViewCell},
-		{m.DrillFwd, m.DrillReverse, m.ColumnPicker},
+		{m.DrillFwd, m.DrillReverse, m.ColumnPicker, m.SavePerspective},
 		{m.SwitchFocus, m.SwitchFocusBack, m.Pane1, m.Pane2, m.Pane3, m.Maximize, m.Goto},
 		{m.TableListFilter, m.QueryLog, m.Refresh, m.TableInfo, m.Help, m.Quit},
 	}

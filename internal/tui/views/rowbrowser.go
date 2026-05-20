@@ -3,6 +3,8 @@ package views
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/polesen/datacow/internal/core/config"
 	"github.com/polesen/datacow/internal/core/dataset"
 	"github.com/polesen/datacow/internal/core/db"
 	"github.com/polesen/datacow/internal/core/export"
@@ -60,14 +63,27 @@ func CountLoadedMsgForTest(result *dataset.QueryResult) tea.Msg {
 type uiMode int
 
 const (
-	modeNormal        uiMode = iota
-	modeFilterModal          // query filter modal is open
-	modeExportMenu           // choosing export format
-	modeExporting            // export in progress
-	modePageSizeInput        // page-size input bar is open
-	modeRefByPicker          // "referenced by" picker overlay is open
-	modeColumnPicker         // column picker overlay is open
+	modeNormal              uiMode = iota
+	modeFilterModal                // query filter modal is open
+	modeExportMenu                 // choosing export format
+	modeExporting                  // export in progress
+	modePageSizeInput              // page-size input bar is open
+	modeRefByPicker                // "referenced by" picker overlay is open
+	modeColumnPicker               // column picker overlay is open
+	modeSavePerspective            // save-perspective name overlay is open
 )
+
+// PerspectiveSavedMsg is emitted by the row browser when a perspective is successfully saved.
+// The App handles it to refresh the dataset list and update its ConfigPath.
+type PerspectiveSavedMsg struct {
+	Path string // path of the config file that was written
+}
+
+// perspectiveSavedInternal carries a successful save result back to the row browser.
+type perspectiveSavedInternal struct{ path string }
+
+// perspectiveSaveErrorInternal carries a failed save result back to the row browser.
+type perspectiveSaveErrorInternal struct{ err error }
 
 // localSearchFlashExpiredMsg is sent when the 400ms local-search flash timer expires.
 type localSearchFlashExpiredMsg struct{}
@@ -147,6 +163,12 @@ type RowBrowserModel struct {
 	columns      *ColumnRegistry
 	columnPicker ColumnPickerModel
 
+	// save-perspective overlay
+	savePerspective  SavePerspectiveModel
+	configPath       string // path to config file; empty in zero-config mode
+	activeDatasource string // name of the active datasource
+	presetApplied    bool   // tracks whether the perspective preset has been applied to the registry
+
 	// discovered totals
 	knownTotalPages *int
 	knownTotalRows  *int64
@@ -169,7 +191,7 @@ func NewRowBrowserModelWithColumns(k keys.Map, executor *dataset.Executor, expor
 	ti := textinput.New()
 	ti.CharLimit = 5
 	ti.Width = 8
-	return RowBrowserModel{
+	m := RowBrowserModel{
 		ds:            ds,
 		spinner:       newSpinner(),
 		loading:       true,
@@ -183,6 +205,28 @@ func NewRowBrowserModelWithColumns(k keys.Map, executor *dataset.Executor, expor
 		pageSizeInput: ti,
 		columns:       columns,
 	}
+	// Pre-seed filters and sort from perspective preset (columns applied after first load).
+	if ds.Kind == dataset.KindPerspective && ds.Preset != nil {
+		m.filters = ds.Preset.Filters
+		m.sort = ds.Preset.Sort
+	}
+	return m
+}
+
+// WithConfigPath returns a copy of the model with the config path and active datasource set.
+// The App calls this after constructing the row browser so the save-perspective overlay
+// can write to the correct file.
+func (m RowBrowserModel) WithConfigPath(configPath, activeDatasource string) RowBrowserModel {
+	m.configPath = configPath
+	m.activeDatasource = activeDatasource
+	return m
+}
+
+// UpdateConfigPath updates the config path stored in the model.
+// The App calls this after a successful perspective save to keep the path in sync.
+func (m RowBrowserModel) UpdateConfigPath(path string) RowBrowserModel {
+	m.configPath = path
+	return m
 }
 
 func (m RowBrowserModel) Init() tea.Cmd {
@@ -282,9 +326,13 @@ func (m RowBrowserModel) loadPKColsCmd() tea.Cmd {
 
 func (m RowBrowserModel) applyLoadedResult(r *dataset.QueryResult) RowBrowserModel {
 	// Seed column registry on first load for this dataset.
-	// Use the full schema columns (from the result when all columns selected, or
-	// fall back to whatever the query returned).
 	m.columns.Seed(m.ds.Name, r.Columns)
+
+	// Apply the column preset from a perspective on the very first load.
+	if !m.presetApplied && m.ds.Kind == dataset.KindPerspective && m.ds.Preset != nil && len(m.ds.Preset.Columns) > 0 {
+		m = m.applyPresetColumns(m.ds.Preset.Columns)
+		m.presetApplied = true
+	}
 
 	m.result = r
 	m.loading = false
@@ -418,6 +466,38 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 			}
 		}
 		return m, nil
+	}
+
+	// Route all messages to the save-perspective overlay when it is open.
+	if m.mode == modeSavePerspective {
+		if ws, ok := msg.(tea.WindowSizeMsg); ok {
+			m.width = ws.Width
+			m.height = ws.Height
+			return m, nil
+		}
+		if _, ok := msg.(spinner.TickMsg); ok {
+			return m, nil
+		}
+		// Handle internal result messages from the save command.
+		if sm, ok := msg.(perspectiveSavedInternal); ok {
+			m.mode = modeNormal
+			m.statusMsg = "Saved to " + sm.path
+			return m, func() tea.Msg { return PerspectiveSavedMsg{Path: sm.path} }
+		}
+		if se, ok := msg.(perspectiveSaveErrorInternal); ok {
+			m.savePerspective = m.savePerspective.SetError(se.err.Error())
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.savePerspective, cmd = m.savePerspective.Update(msg)
+		if m.savePerspective.IsConfirmed() {
+			return m, m.savePerspectiveCmd(m.savePerspective.Name())
+		}
+		if m.savePerspective.IsCancelled() {
+			m.mode = modeNormal
+			return m, nil
+		}
+		return m, cmd
 	}
 
 	// Route all messages to the referenced-by picker when it is open.
@@ -814,8 +894,105 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 
 	case key.Matches(msg, m.keys.ColumnPicker):
 		return m.openColumnPicker()
+
+	case key.Matches(msg, m.keys.SavePerspective):
+		if m.ds.Kind == dataset.KindTable || m.ds.Kind == dataset.KindView {
+			return m.openSavePerspective()
+		}
 	}
 	return m, nil
+}
+
+// openSavePerspective opens the save-perspective name overlay.
+func (m RowBrowserModel) openSavePerspective() (RowBrowserModel, tea.Cmd) {
+	if m.result == nil {
+		return m, nil
+	}
+	sp := NewSavePerspectiveModel()
+	var focusCmd tea.Cmd
+	m.savePerspective, focusCmd = sp.Focus()
+	m.mode = modeSavePerspective
+	return m, focusCmd
+}
+
+// savePerspectiveCmd attempts to write the perspective to disk and returns a
+// perspectiveSavedInternal or perspectiveSaveErrorInternal message.
+func (m RowBrowserModel) savePerspectiveCmd(name string) tea.Cmd {
+	// Collect active state.
+	cols := m.columns.VisibleColumns(m.ds.Name) // nil = all columns in schema order
+	filters := m.filters
+	sort := m.sort
+	table := m.ds.Table
+	datasource := m.activeDatasource
+	configPath := m.configPath
+
+	p := buildPerspectiveConfig(name, cols, filters, sort)
+
+	return func() tea.Msg {
+		path, err := resolveSavePath(configPath)
+		if err != nil {
+			return perspectiveSaveErrorInternal{err: err}
+		}
+		if err := config.AppendPerspective(path, datasource, table, p); err != nil {
+			return perspectiveSaveErrorInternal{err: err}
+		}
+		return perspectiveSavedInternal{path: path}
+	}
+}
+
+// resolveSavePath determines the config file path to write to.
+// It tries configPath first, then ~/.datacow/config.yaml, then ./datacow.yaml.
+func resolveSavePath(configPath string) (string, error) {
+	if configPath != "" {
+		return configPath, nil
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		homePath := filepath.Join(home, ".datacow", "config.yaml")
+		if err2 := os.MkdirAll(filepath.Dir(homePath), 0o755); err2 == nil {
+			return homePath, nil
+		}
+	}
+	return "./datacow.yaml", nil
+}
+
+// buildPerspectiveConfig constructs a PerspectiveConfig from active row browser state.
+func buildPerspectiveConfig(name string, cols []string, filters []dataset.Filter, sort *dataset.Sort) config.PerspectiveConfig {
+	p := config.PerspectiveConfig{Name: name, Columns: cols}
+	for _, f := range filters {
+		p.Filters = append(p.Filters, config.FilterConfig{
+			Column:   f.Column,
+			Operator: f.Operator,
+			Value:    f.Value,
+		})
+	}
+	if sort != nil {
+		p.Sort = []config.SortConfig{{Column: sort.Column, Desc: sort.Desc}}
+	}
+	return p
+}
+
+// applyPresetColumns sets the column registry selection to match the perspective's preset.
+func (m RowBrowserModel) applyPresetColumns(presetCols []string) RowBrowserModel {
+	original := m.columns.GetOriginal(m.ds.Name)
+	if original == nil {
+		return m
+	}
+	presetSet := make(map[string]bool, len(presetCols))
+	for _, c := range presetCols {
+		presetSet[c] = true
+	}
+	newSel := make([]ColumnSelection, 0, len(original))
+	for _, c := range presetCols {
+		newSel = append(newSel, ColumnSelection{Name: c, Visible: true})
+	}
+	for _, c := range original {
+		if !presetSet[c.Name] {
+			newSel = append(newSel, ColumnSelection{Name: c.Name, Visible: false})
+		}
+	}
+	m.columns.Set(m.ds.Name, newSel)
+	return m
 }
 
 // openColumnPicker opens the column picker overlay for the active dataset.
@@ -1187,6 +1364,7 @@ func (m RowBrowserModel) TotalRows() (int64, bool) {
 func (m RowBrowserModel) ColOffset() int               { return m.colOffset }
 func (m RowBrowserModel) ColCursor() int               { return m.colCursor }
 func (m RowBrowserModel) DatasetName() string          { return m.ds.Name }
+func (m RowBrowserModel) DatasetKind() dataset.Kind    { return m.ds.Kind }
 func (m RowBrowserModel) RowCursor() int               { return m.rowCursor }
 func (m RowBrowserModel) RowOffset() int               { return m.rowOffset }
 func (m RowBrowserModel) VisibleRowCount() int         { return m.visibleRowCount() }
@@ -1198,6 +1376,7 @@ func (m RowBrowserModel) Filters() []dataset.Filter    { return m.filters }
 func (m RowBrowserModel) ActiveSort() *dataset.Sort    { return m.sort }
 func (m RowBrowserModel) IsFilterModalOpen() bool      { return m.mode == modeFilterModal }
 func (m RowBrowserModel) IsPageSizeInputOpen() bool    { return m.mode == modePageSizeInput }
+func (m RowBrowserModel) IsSavePerspectiveOpen() bool  { return m.mode == modeSavePerspective }
 func (m RowBrowserModel) IsLocalSearchInputActive() bool {
 	return m.localSearch.InputActive()
 }
@@ -1224,7 +1403,7 @@ func (m RowBrowserModel) ExportMenuActive() bool { return m.mode == modeExportMe
 // BlocksGlobalKeys returns true when the row browser is consuming keys that
 // should not be intercepted by the App (modal open, local search input active).
 func (m RowBrowserModel) BlocksGlobalKeys() bool {
-	return m.mode == modeFilterModal || m.localSearch.InputActive() || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker
+	return m.mode == modeFilterModal || m.localSearch.InputActive() || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker || m.mode == modeSavePerspective
 }
 
 // CancelExport cancels an in-progress export if one is running.
@@ -1297,7 +1476,7 @@ func (m RowBrowserModel) refByColSetFromCache() map[string]bool {
 // NeedsBackKey returns true when the row browser is consuming the Back key
 // internally, so the app should not intercept it.
 func (m RowBrowserModel) NeedsBackKey() bool {
-	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0 || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker
+	return m.mode == modeFilterModal || m.localSearch.IsActive() || len(m.drillStack) > 0 || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker || m.mode == modeSavePerspective
 }
 
 // NeedsTabKey returns true when the row browser is consuming Tab internally
@@ -1363,6 +1542,12 @@ func (m RowBrowserModel) View() string {
 	// Column picker overlay takes the full view area.
 	if m.mode == modeColumnPicker {
 		return style.Content.Width(m.width).Height(m.height).Render(m.columnPicker.View())
+	}
+
+	// Save-perspective overlay: centered box over the content.
+	if m.mode == modeSavePerspective {
+		overlay := m.savePerspective.View()
+		return style.Content.Width(m.width).Height(m.height).Render(overlay)
 	}
 
 	// Full-screen spinner for the initial root-level load (no parent levels yet).

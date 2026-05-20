@@ -47,7 +47,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	connStr, _ := cmd.Flags().GetString("connection-string")   // error only if flag unregistered or wrong type, impossible here
 	configPath, _ := cmd.Flags().GetString("config")           // same
 
-	cfg, err := loadConfig(configPath)
+	cfg, loadedConfigPath, err := loadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -87,6 +87,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		ConfigDatasets:   cfg.Datasets,
 		ActiveDatasource: activeDatasource,
 		Datasources:      cfg.Datasources,
+		ConfigPath:       loadedConfigPath,
 	}
 
 	app := tui.New(tuiCfg, client, connErr)
@@ -98,18 +99,20 @@ func runTUI(cmd *cobra.Command, args []string) error {
 }
 
 // loadConfig loads config from an explicit path or searches the default locations.
-func loadConfig(explicitPath string) (*config.Config, error) {
+// Returns the loaded config, the path it was loaded from (empty if not found), and any error.
+func loadConfig(explicitPath string) (*config.Config, string, error) {
 	if explicitPath != "" {
-		return config.Load(explicitPath)
+		cfg, err := config.Load(explicitPath)
+		return cfg, explicitPath, err
 	}
 	for _, p := range config.DefaultPaths() {
 		cfg, err := config.Load(p)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if len(cfg.Datasources) > 0 || len(cfg.Datasets) > 0 {
-			return cfg, nil
+			return cfg, p, nil
 		}
 	}
-	return &config.Config{}, nil
+	return &config.Config{}, "", nil
 }

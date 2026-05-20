@@ -1048,8 +1048,8 @@ func TestApp_PageSize_PKeyOpensInput(t *testing.T) {
 		return strings.Contains(s, "2 pagesize_p_test") && strings.Contains(s, "page 1/")
 	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
 
-	// Press P — page-size input bar must appear.
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	// Press N — page-size input bar must appear (PageSize key moved from P to N).
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "Page size:")
 	}, teatest.WithDuration(5*time.Second))

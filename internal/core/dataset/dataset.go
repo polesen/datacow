@@ -6,17 +6,27 @@ import "github.com/polesen/datacow/internal/core/db"
 type Kind string
 
 const (
-	KindTable   Kind = "table"   // auto-discovered or YAML-referenced base table
-	KindView    Kind = "view"    // auto-discovered database view
-	KindDataset Kind = "dataset" // YAML-defined custom SQL query
+	KindTable       Kind = "table"       // auto-discovered or YAML-referenced base table
+	KindView        Kind = "view"        // auto-discovered database view
+	KindDataset     Kind = "dataset"     // YAML-defined custom SQL query
+	KindPerspective Kind = "perspective" // named, persisted filter/sort/column lens over a table
 )
 
 // Dataset represents a named view of data — either a plain table or a saved SQL query.
 type Dataset struct {
-	Name  string
-	Table string // set for auto-discovered or named table datasets
-	SQL   string // set for custom SQL query datasets
-	Kind  Kind
+	Name        string
+	Table       string // set for auto-discovered or named table datasets
+	SQL         string // set for custom SQL query datasets
+	Kind        Kind
+	ParentTable string              // set for KindPerspective; the table this lens is over
+	Preset      *QueryOptionsPreset // set for KindPerspective; nil otherwise
+}
+
+// QueryOptionsPreset holds the pre-seeded state for a perspective.
+type QueryOptionsPreset struct {
+	Columns []string
+	Filters []Filter
+	Sort    *Sort // nil if no sort configured
 }
 
 // QueryOptions controls pagination, filtering, and sorting for a dataset query.
