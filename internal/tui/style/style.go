@@ -197,3 +197,8 @@ var FilterBarFlash = lipgloss.NewStyle().
 	Background(lipgloss.AdaptiveColor{Dark: "#FF9E64", Light: "#FF9E64"}).
 	Bold(true).
 	Padding(0, 1)
+
+// PerspectiveBadge styles the [P] badge in the table list.
+var PerspectiveBadge = lipgloss.NewStyle().
+	Foreground(lipgloss.AdaptiveColor{Dark: "#73DACA", Light: "#007A6E"}).
+	Italic(true)

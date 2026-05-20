@@ -156,3 +156,109 @@ func TestResolver_ScopedFiltered(t *testing.T) {
 		}
 	})
 }
+
+// CF07: Resolver with a table dataset that has two perspectives emits them as KindPerspective
+// entries immediately after the parent in the flat list; Preset fields match the config values.
+func TestAC_CF07_ResolverEmitsPerspectives(t *testing.T) {
+	sc := &stubClient{}
+	cfgDatasets := []config.DatasetConfig{
+		{
+			Name:  "api_logs",
+			Table: "api_logs",
+			Perspectives: []config.PerspectiveConfig{
+				{
+					Name:    "Failed Calls",
+					Columns: []string{"id", "result"},
+					Filters: []config.FilterConfig{
+						{Column: "result", Operator: "!=", Value: 200},
+					},
+					Sort: []config.SortConfig{{Column: "ts", Desc: true}},
+				},
+				{
+					Name: "Recent Errors",
+				},
+			},
+		},
+	}
+	r := dataset.NewResolver(sc, cfgDatasets, "")
+	datasets, err := r.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	// Expect: api_logs (parent) + Failed Calls + Recent Errors = 3 total.
+	if len(datasets) != 3 {
+		t.Fatalf("expected 3 datasets (1 parent + 2 perspectives), got %d", len(datasets))
+	}
+
+	parent := datasets[0]
+	if parent.Name != "api_logs" || parent.Kind != dataset.KindTable {
+		t.Errorf("expected parent KindTable 'api_logs', got %+v", parent)
+	}
+
+	fc := datasets[1]
+	if fc.Kind != dataset.KindPerspective {
+		t.Errorf("expected KindPerspective for Failed Calls, got %q", fc.Kind)
+	}
+	if fc.Name != "Failed Calls" {
+		t.Errorf("expected name 'Failed Calls', got %q", fc.Name)
+	}
+	if fc.ParentTable != "api_logs" {
+		t.Errorf("expected ParentTable 'api_logs', got %q", fc.ParentTable)
+	}
+	if fc.Preset == nil {
+		t.Fatal("expected non-nil Preset for Failed Calls")
+	}
+	if len(fc.Preset.Columns) != 2 || fc.Preset.Columns[0] != "id" {
+		t.Errorf("unexpected Preset.Columns: %v", fc.Preset.Columns)
+	}
+	if len(fc.Preset.Filters) != 1 || fc.Preset.Filters[0].Column != "result" {
+		t.Errorf("unexpected Preset.Filters: %v", fc.Preset.Filters)
+	}
+	if fc.Preset.Sort == nil || fc.Preset.Sort.Column != "ts" || !fc.Preset.Sort.Desc {
+		t.Errorf("unexpected Preset.Sort: %+v", fc.Preset.Sort)
+	}
+
+	re := datasets[2]
+	if re.Kind != dataset.KindPerspective || re.Name != "Recent Errors" {
+		t.Errorf("expected KindPerspective 'Recent Errors', got %+v", re)
+	}
+	if re.Preset == nil {
+		t.Fatal("expected non-nil Preset for Recent Errors (empty preset is still non-nil)")
+	}
+}
+
+// CF08: When a config dataset is a plain table reference (Name==Table, no SQL) for a table
+// that was already auto-discovered, the resolver deduplicates — the table appears only once,
+// and its perspectives are inserted immediately after the auto-discovered entry.
+func TestAC_CF08_ResolverDeduplicatesAutoDiscoveredTables(t *testing.T) {
+	sc := &stubClient{tables: []db.TableEntry{
+		{Name: "api_logs", Kind: db.KindTable},
+	}}
+	cfgDatasets := []config.DatasetConfig{
+		{
+			Name:  "api_logs",
+			Table: "api_logs",
+			Perspectives: []config.PerspectiveConfig{
+				{Name: "Failed Calls"},
+			},
+		},
+	}
+	r := dataset.NewResolver(sc, cfgDatasets, "")
+	datasets, err := r.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	// Expect: api_logs (auto-discovered, NOT duplicated) + Failed Calls = 2 total.
+	if len(datasets) != 2 {
+		t.Fatalf("expected 2 datasets (no duplicate parent), got %d: %+v", len(datasets), datasets)
+	}
+	if datasets[0].Name != "api_logs" || datasets[0].Kind != dataset.KindTable {
+		t.Errorf("expected auto-discovered api_logs first, got %+v", datasets[0])
+	}
+	if datasets[1].Kind != dataset.KindPerspective || datasets[1].Name != "Failed Calls" {
+		t.Errorf("expected KindPerspective 'Failed Calls' second, got %+v", datasets[1])
+	}
+	if datasets[1].ParentTable != "api_logs" {
+		t.Errorf("expected ParentTable 'api_logs', got %q", datasets[1].ParentTable)
+	}
+}

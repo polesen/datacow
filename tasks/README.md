@@ -12,7 +12,6 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ./tasks/run-task.sh ready/<task>.md
 ```
 
-- [Save Table View as Perspective](ready/save-table-perspective.md)
 - [Multi-Column Sort](ready/multi-column-sort.md)
 
 ## Done
@@ -46,6 +45,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 - [000027 Reverse FK Drill-Down](done/000027-reverse-fk-drilldown.md)
 - [000028 Table List Filter Bar Visibility](done/000028-tablelist-filter-bar-visibility.md)
 - [000029 Column Picker — Select and Reorder Visible Columns](done/000029-column-picker.md)
+- [000030 Save Table View as Perspective](done/000030-save-table-perspective.md)
 
 ## Future Work
 

@@ -344,7 +344,7 @@ func TestRowBrowserModel_PageSizeInput_Open(t *testing.T) {
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
 	if !m.IsPageSizeInputOpen() {
 		t.Error("expected page size input open after 'P'")
 	}
@@ -356,7 +356,7 @@ func TestRowBrowserModel_PageSizeInput_EscCloses(t *testing.T) {
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.IsPageSizeInputOpen() {
 		t.Error("expected page size input closed after Esc")
@@ -370,7 +370,7 @@ func TestRowBrowserModel_PageSizeInput_ValidValue_TriggersLoad(t *testing.T) {
 	result := makeResult(1, 3, 0, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
 	// Clear pre-filled value ("50") then type new value.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
@@ -413,7 +413,7 @@ func TestRowBrowserModel_PageSizeInput_PreservesPosition(t *testing.T) {
 	}
 
 	// Open page-size input, clear "50", type "25", Enter.
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	for _, r := range "25" {
@@ -450,7 +450,7 @@ func TestRowBrowserModel_PageSizeInput_InvalidValue_ShowsError(t *testing.T) {
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
 	// Clear the pre-filled value ("50") and type "0" (invalid).
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
@@ -474,7 +474,7 @@ func TestRowBrowserModel_PageSizeInput_NonDigitDropped(t *testing.T) {
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
 	// Type 'a' — should be silently dropped.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	if !m.IsPageSizeInputOpen() {
@@ -489,7 +489,7 @@ func TestRowBrowserModel_PageSizeInput_ViewRendered(t *testing.T) {
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
 	v := m.View()
 	if !strings.Contains(v, "Page size:") {
 		t.Errorf("view should show 'Page size:' bar when P pressed, got:\n%s", v)
@@ -953,7 +953,7 @@ func TestRowBrowserModel_NeedsBackKey_PageSizeInput(t *testing.T) {
 	result := makeResult(1, 1, 1, []db.Column{{Name: "id"}}, nil)
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}})
 	if !m.NeedsBackKey() {
 		t.Error("NeedsBackKey should be true when page size input is open")
 	}

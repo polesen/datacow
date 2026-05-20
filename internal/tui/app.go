@@ -65,6 +65,9 @@ type Config struct {
 
 	// Datasources are all configured datasources, used when showing the picker.
 	Datasources []config.DatasourceConfig
+
+	// ConfigPath is the path of the config file that was loaded, or "" for zero-config mode.
+	ConfigPath string
 }
 
 // schemaCacheReadyMsg signals that the initial schema cache load completed.
@@ -75,6 +78,9 @@ type schemaCacheErrMsg struct{ Err error }
 
 // schemaCacheRefreshedMsg signals that a ctrl+r refresh completed.
 type schemaCacheRefreshedMsg struct{}
+
+// datasetsReloadedMsg carries a freshly-loaded config dataset list after a perspective save.
+type datasetsReloadedMsg struct{ datasets []config.DatasetConfig }
 
 // App is the root Bubble Tea model for Datacow.
 type App struct {
@@ -191,6 +197,22 @@ func (a *App) cacheLoadCmd() tea.Cmd {
 			return schemaCacheErrMsg{Err: err}
 		}
 		return schemaCacheReadyMsg{}
+	}
+}
+
+// reloadDatasetsCmd re-reads the config file and returns the updated dataset list.
+// Called after a perspective is saved so the table list reflects the new entry.
+func (a *App) reloadDatasetsCmd() tea.Cmd {
+	path := a.cfg.ConfigPath
+	return func() tea.Msg {
+		if path == "" {
+			return datasetsReloadedMsg{datasets: nil}
+		}
+		cfg, err := config.Load(path)
+		if err != nil {
+			return datasetsReloadedMsg{datasets: nil}
+		}
+		return datasetsReloadedMsg{datasets: cfg.Datasets}
 	}
 }
 
@@ -551,7 +573,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if !inModalInput && a.focus == focusTables && (key.Matches(msg, a.keys.Enter) || key.Matches(msg, a.keys.Right)) {
 				if ds := a.tableList.SelectedDataset(); ds != nil {
-					a.rowBrowser = views.NewRowBrowserModelWithColumns(a.keys, a.executor, a.exporter, *ds, a.pageSizeRegistry, a.schemaCache, a.columnRegistry)
+					a.rowBrowser = views.NewRowBrowserModelWithColumns(a.keys, a.executor, a.exporter, *ds, a.pageSizeRegistry, a.schemaCache, a.columnRegistry).
+						WithConfigPath(a.cfg.ConfigPath, a.cfg.ActiveDatasource)
 					sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 					a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
 					a.rowBrowserReady = true
@@ -630,7 +653,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Dataset != nil {
 			a.tableList, _ = a.tableList.SelectByName(msg.Dataset.Name)
-			a.rowBrowser = views.NewRowBrowserModelWithColumns(a.keys, a.executor, a.exporter, *msg.Dataset, a.pageSizeRegistry, a.schemaCache, a.columnRegistry)
+			a.rowBrowser = views.NewRowBrowserModelWithColumns(a.keys, a.executor, a.exporter, *msg.Dataset, a.pageSizeRegistry, a.schemaCache, a.columnRegistry).
+				WithConfigPath(a.cfg.ConfigPath, a.cfg.ActiveDatasource)
 			sizeMsg := tea.WindowSizeMsg{Width: a.rightInnerW(), Height: a.modelH()}
 			a.rowBrowser, _ = a.rowBrowser.Update(sizeMsg)
 			a.rowBrowserReady = true
@@ -653,6 +677,33 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case schemaCacheRefreshedMsg:
 		a.cacheLoading = false
 		return a, nil
+
+	// These messages are async results from table list background operations.
+	// Route them directly to the table list regardless of which pane has focus,
+	// so that a reload triggered while the row browser is focused still completes.
+	case views.TablesLoadedMsg, views.ExpansionLoadedMsg, views.IndexesLoadedMsg:
+		var tableCmd tea.Cmd
+		a.tableList, tableCmd = a.tableList.Update(msg)
+		return a, tableCmd
+
+	case views.PerspectiveSavedMsg:
+		if a.cfg.ConfigPath == "" {
+			a.cfg.ConfigPath = msg.Path
+		}
+		// Update the row browser's config path so subsequent saves use the same file.
+		if a.rowBrowserReady {
+			a.rowBrowser = a.rowBrowser.UpdateConfigPath(a.cfg.ConfigPath)
+		}
+		// Reload config and refresh the dataset list.
+		return a, a.reloadDatasetsCmd()
+
+	case datasetsReloadedMsg:
+		a.cfg.ConfigDatasets = msg.datasets
+		newResolver := dataset.NewResolver(a.activeClient, msg.datasets, a.cfg.ActiveDatasource)
+		a.activeResolver = newResolver
+		var reloadCmd tea.Cmd
+		a.tableList, reloadCmd = a.tableList.Reload(newResolver)
+		return a, reloadCmd
 
 	case views.DatasourceSelectMsg:
 		if existing, ok := a.connections[msg.Name]; ok {
@@ -1020,6 +1071,13 @@ func (a *App) renderRowBrowserStatusBar(runningPart string) string {
 		keyParts = append(keyParts, style.StatusKey.Render("↵")+style.StatusDesc.Render(" drill"))
 	}
 	keyParts = append(keyParts, style.StatusKey.Render("<")+style.StatusDesc.Render(" ref by"))
+	// Show save-perspective shortcut only for saveable dataset kinds.
+	if a.rowBrowserReady {
+		switch a.rowBrowser.DatasetKind() {
+		case dataset.KindTable, dataset.KindView:
+			keyParts = append(keyParts, style.StatusKey.Render("P")+style.StatusDesc.Render(" save perspective"))
+		}
+	}
 	right := strings.Join(keyParts, "  ")
 
 	left := info

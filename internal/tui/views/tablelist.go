@@ -405,11 +405,32 @@ func (m TableListModel) computeFilter() map[int]filterMatch {
 		}
 	}
 
+	// Build a name→index map for tables, so we can mark tables whose perspectives match.
+	tableIdxByName := make(map[string]int, len(m.datasets))
+	for i, ds := range m.datasets {
+		if ds.Kind == dataset.KindTable || ds.Kind == dataset.KindView {
+			tableIdxByName[ds.Name] = i
+		}
+	}
+
 	result := make(map[int]filterMatch, len(m.datasets))
 	for i, ds := range m.datasets {
 		var fm filterMatch
 		if strings.Contains(strings.ToLower(ds.Name), q) {
 			fm.byName = true
+		}
+		// For perspectives: if the name matches, also mark the parent table as a name match.
+		if ds.Kind == dataset.KindPerspective {
+			if fm.byName {
+				if parentIdx, ok := tableIdxByName[ds.ParentTable]; ok {
+					pm := result[parentIdx]
+					pm.byName = true
+					result[parentIdx] = pm
+				}
+				// Perspective itself matches.
+				result[i] = fm
+			}
+			continue
 		}
 		// YAML SQL datasets have no underlying table schema to inspect.
 		if cacheReady && ds.Kind != dataset.KindDataset && ds.Table != "" {
@@ -496,15 +517,23 @@ func (m TableListModel) clearFilter() TableListModel {
 	return m
 }
 
-// visibleDatasetIndices returns the ordered list of dataset indices that are visible
-// under the current filter (or all indices when no filter is active).
+// visibleDatasetIndices returns the ordered list of dataset indices that are
+// cursor-navigable under the current filter (or all visible indices when no filter is active).
+// Perspectives are only included when their parent table is expanded.
 func (m TableListModel) visibleDatasetIndices() []int {
 	if m.filterQuery == "" {
-		indices := make([]int, len(m.datasets))
-		for i := range indices {
-			indices[i] = i
+		result := make([]int, 0, len(m.datasets))
+		for i, ds := range m.datasets {
+			if ds.Kind == dataset.KindPerspective {
+				parentIdx := m.findParentIdx(ds)
+				if parentIdx >= 0 && parentIdx < len(m.tree) && m.tree[parentIdx].expanded {
+					result = append(result, i)
+				}
+				continue
+			}
+			result = append(result, i)
 		}
-		return indices
+		return result
 	}
 	matches := m.computeFilter()
 	result := make([]int, 0, len(matches))
@@ -516,20 +545,56 @@ func (m TableListModel) visibleDatasetIndices() []int {
 	return result
 }
 
+// findParentIdx returns the dataset index of the parent table for a KindPerspective dataset.
+// Returns -1 if not found.
+func (m TableListModel) findParentIdx(ds dataset.Dataset) int {
+	for i, d := range m.datasets {
+		if (d.Kind == dataset.KindTable || d.Kind == dataset.KindView) &&
+			(d.Table == ds.ParentTable || d.Name == ds.ParentTable) {
+			return i
+		}
+	}
+	return -1
+}
+
+// perspectiveIndicesFor returns the dataset indices of all KindPerspective datasets
+// whose ParentTable matches the table at parentIdx.
+func (m TableListModel) perspectiveIndicesFor(parentIdx int) []int {
+	if parentIdx < 0 || parentIdx >= len(m.datasets) {
+		return nil
+	}
+	parent := m.datasets[parentIdx]
+	var result []int
+	for i, ds := range m.datasets {
+		if ds.Kind == dataset.KindPerspective &&
+			(ds.ParentTable == parent.Table || ds.ParentTable == parent.Name) {
+			result = append(result, i)
+		}
+	}
+	return result
+}
+
 // ---- Tree / expansion ----
 
 // FocusedExpandable reports whether the currently-focused row can be expanded
-// (i.e. is a table or view — not a YAML SQL dataset).
+// (i.e. is a KindTable or KindView — not SQL datasets or perspectives, which are leaves).
 func (m TableListModel) FocusedExpandable() bool {
 	if m.cursor < 0 || m.cursor >= len(m.datasets) {
 		return false
 	}
-	return m.datasets[m.cursor].Kind != dataset.KindDataset
+	k := m.datasets[m.cursor].Kind
+	return k != dataset.KindDataset && k != dataset.KindPerspective
 }
 
 // FocusedExpanded reports whether the currently-focused row is expanded.
 func (m TableListModel) FocusedExpanded() bool {
-	if m.cursor < 0 || m.cursor >= len(m.tree) {
+	if m.cursor < 0 || m.cursor >= len(m.datasets) {
+		return false
+	}
+	if m.datasets[m.cursor].Kind == dataset.KindPerspective {
+		return false
+	}
+	if m.cursor >= len(m.tree) {
 		return false
 	}
 	return m.tree[m.cursor].expanded
@@ -589,6 +654,14 @@ func (m TableListModel) DatasetCount() int { return len(m.datasets) }
 func (m TableListModel) Cursor() int       { return m.cursor }
 func (m TableListModel) Err() error        { return m.err }
 
+// Reload updates the resolver and re-fetches the dataset list.
+// The App calls this after a perspective is saved so the new entry appears in the tree.
+func (m TableListModel) Reload(resolver *dataset.Resolver) (TableListModel, tea.Cmd) {
+	m.resolver = resolver
+	m.loading = true
+	return m, m.loadTablesCmd()
+}
+
 // SelectByName moves the cursor to the first dataset whose Name matches.
 // Returns true if found. Used by the app after a goto selection.
 func (m TableListModel) SelectByName(name string) (TableListModel, bool) {
@@ -613,15 +686,25 @@ type visibleLine struct {
 }
 
 // buildLines flattens datasets + tree into a sequence of rendered lines.
+// Perspectives (KindPerspective) appear as cursor-navigable header rows immediately
+// after their parent's expand indicator, above the column/index sub-lines.
 func (m TableListModel) buildLines() []visibleLine {
 	if m.filterQuery != "" {
 		return m.buildFilteredLines()
 	}
 	out := make([]visibleLine, 0, len(m.datasets))
 	for i, ds := range m.datasets {
+		// Perspectives are inserted by their parent's expansion logic; skip here.
+		if ds.Kind == dataset.KindPerspective {
+			continue
+		}
 		out = append(out, visibleLine{datasetIdx: i, isHeader: true})
 		if i >= len(m.tree) || !m.tree[i].expanded {
 			continue
+		}
+		// Add perspective sub-entries before column/FK sub-lines.
+		for _, pIdx := range m.perspectiveIndicesFor(i) {
+			out = append(out, visibleLine{datasetIdx: pIdx, isHeader: true})
 		}
 		for _, ln := range m.subLines(i, ds) {
 			out = append(out, visibleLine{datasetIdx: i, sub: ln})
@@ -637,10 +720,20 @@ func (m TableListModel) buildFilteredLines() []visibleLine {
 	}
 	out := make([]visibleLine, 0)
 	for i, ds := range m.datasets {
+		// Perspectives are handled after their parent tables.
+		if ds.Kind == dataset.KindPerspective {
+			continue
+		}
 		if _, ok := matches[i]; !ok {
 			continue
 		}
 		out = append(out, visibleLine{datasetIdx: i, isHeader: true})
+		// Always show matching perspective sub-entries in filter mode (even if parent collapsed).
+		for _, pIdx := range m.perspectiveIndicesFor(i) {
+			if _, ok := matches[pIdx]; ok {
+				out = append(out, visibleLine{datasetIdx: pIdx, isHeader: true})
+			}
+		}
 		if i < len(m.tree) && m.tree[i].expanded {
 			for _, ln := range m.subLines(i, ds) {
 				out = append(out, visibleLine{datasetIdx: i, sub: ln})
@@ -863,6 +956,11 @@ func (m TableListModel) renderHeaderRow(i int) string {
 	const maxNameWidth = 40
 	const margin = 2
 
+	// Perspectives use a distinct prefix and badge — no expand indicator.
+	if ds.Kind == dataset.KindPerspective {
+		return m.renderPerspectiveRow(i, ds)
+	}
+
 	badge := datasetKindBadge(ds.Kind)
 	var badgeW int
 	if badge != "" {
@@ -920,6 +1018,43 @@ func (m TableListModel) renderHeaderRow(i int) string {
 		line = caret + runewidth.FillRight(name, nameWidth)
 	}
 
+	if selected {
+		return style.RowSelected.Width(m.width).Render(line)
+	}
+	return style.RowNormal.Width(m.width).Render(line)
+}
+
+// renderPerspectiveRow renders a KindPerspective dataset row with ⊙ prefix and [P] badge.
+func (m TableListModel) renderPerspectiveRow(i int, ds dataset.Dataset) string {
+	const maxNameWidth = 40
+	const indent = "  ⊙ "
+	badge := datasetKindBadge(ds.Kind)
+	badgeW := runewidth.StringWidth(badge) + 1
+	indentW := runewidth.StringWidth(indent)
+
+	available := max(m.width-indentW-badgeW-1, 4)
+	name := runewidth.Truncate(ds.Name, maxNameWidth, "…")
+	selected := i == m.cursor
+
+	if !selected && m.filterQuery != "" {
+		namePart := highlightSubstrRunes(name, m.filterQuery, style.SearchHighlight, available)
+		badgePart := " " + style.PerspectiveBadge.Render(badge)
+		line := indent + namePart + badgePart
+		w := lipgloss.Width(line)
+		if w < m.width {
+			line += strings.Repeat(" ", m.width-w)
+		}
+		return line
+	}
+
+	namePart := runewidth.FillRight(runewidth.Truncate(name, available, "…"), available)
+	var badgePart string
+	if selected {
+		badgePart = " " + badge
+	} else {
+		badgePart = " " + style.PerspectiveBadge.Render(badge)
+	}
+	line := indent + namePart + badgePart
 	if selected {
 		return style.RowSelected.Width(m.width).Render(line)
 	}
@@ -987,6 +1122,8 @@ func datasetKindBadge(k dataset.Kind) string {
 		return "[view]"
 	case dataset.KindDataset:
 		return "[dataset]"
+	case dataset.KindPerspective:
+		return "[P]"
 	default:
 		return ""
 	}

@@ -69,6 +69,7 @@ func (v *HelpOverlayView) View() string {
 			bindings: []key.Binding{
 				v.keys.Sort, v.keys.Export,
 				v.keys.ViewCell, v.keys.ColumnPicker,
+				v.keys.SavePerspective,
 			},
 		},
 		{
