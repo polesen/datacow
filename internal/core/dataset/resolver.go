@@ -98,8 +98,8 @@ func perspectiveFromConfig(cd config.DatasetConfig, p config.PerspectiveConfig) 
 		Columns: p.Columns,
 		Filters: filtersFromConfig(p.Filters),
 	}
-	if len(p.Sort) > 0 {
-		preset.Sort = &Sort{Column: p.Sort[0].Column, Desc: p.Sort[0].Desc}
+	for _, sc := range p.Sort {
+		preset.Sort = append(preset.Sort, Sort{Column: sc.Column, Desc: sc.Desc})
 	}
 	return Dataset{
 		Name:        p.Name,

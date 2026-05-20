@@ -12,7 +12,6 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ./tasks/run-task.sh ready/<task>.md
 ```
 
-- [Multi-Column Sort](ready/multi-column-sort.md)
 - [SQL Dataset Editor with Completions](ready/sql-dataset-editor.md)
 
 ## Done
@@ -47,6 +46,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 - [000028 Table List Filter Bar Visibility](done/000028-tablelist-filter-bar-visibility.md)
 - [000029 Column Picker — Select and Reorder Visible Columns](done/000029-column-picker.md)
 - [000030 Save Table View as Perspective](done/000030-save-table-perspective.md)
+- [000031 Multi-Column Sort](done/000031-multi-column-sort.md)
 
 ## Future Work
 

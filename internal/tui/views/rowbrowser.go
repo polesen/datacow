@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
 	"github.com/polesen/datacow/internal/core/config"
@@ -71,6 +72,7 @@ const (
 	modeRefByPicker                // "referenced by" picker overlay is open
 	modeColumnPicker               // column picker overlay is open
 	modeSavePerspective            // save-perspective name overlay is open
+	modeSortManager                // sort manager overlay is open
 )
 
 // PerspectiveSavedMsg is emitted by the row browser when a perspective is successfully saved.
@@ -108,7 +110,7 @@ type savedLevel struct {
 	rowOffset        int
 	rowCursor        int
 	filters          []dataset.Filter
-	sort             *dataset.Sort
+	sort             []dataset.Sort
 	breadcrumb       string // e.g. "→ customer_id = 1001 → customers"
 	pageSize         int    // snapshot of effective page size for this level
 	knownTotalPages  *int
@@ -141,7 +143,8 @@ type RowBrowserModel struct {
 	schemaCache *schema.Cache
 
 	filters        []dataset.Filter
-	sort           *dataset.Sort
+	sort           []dataset.Sort
+	sortManager    SortManagerModel
 	mode           uiMode
 	filterModal    FilterModalModel
 	refByPicker    RefByPickerModel
@@ -210,6 +213,7 @@ func NewRowBrowserModelWithColumns(k keys.Map, executor *dataset.Executor, expor
 		m.filters = ds.Preset.Filters
 		m.sort = ds.Preset.Sort
 	}
+
 	return m
 }
 
@@ -463,6 +467,41 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 				m.mode = modeNormal
 			default:
 				m.columnPicker = m.columnPicker.handleKey(km.String())
+			}
+		}
+		return m, nil
+	}
+
+	// Route all key messages to the sort manager when it is open.
+	if m.mode == modeSortManager {
+		if ws, ok := msg.(tea.WindowSizeMsg); ok {
+			m.width = ws.Width
+			m.height = ws.Height
+			m.sortManager.width = ws.Width
+			m.sortManager.height = ws.Height
+			return m, nil
+		}
+		if _, ok := msg.(spinner.TickMsg); ok {
+			return m, nil
+		}
+		if km, ok := msg.(tea.KeyMsg); ok {
+			updated, confirmed, emitConfirm := m.sortManager.handleKey(km.String())
+			m.sortManager = updated
+			if emitConfirm {
+				m.sort = confirmed.Sort
+				m.mode = modeNormal
+				m.statusMsg = ""
+				m.knownTotalPages = nil
+				m.knownTotalRows = nil
+				m = m.clearLocalSearch()
+				if m.executor != nil {
+					m.loading = true
+					return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
+				}
+				return m, func() tea.Msg { return SortConfirmedMsg{Sort: confirmed.Sort} }
+			}
+			if m.sortManager.IsCancelled() {
+				m.mode = modeNormal
 			}
 		}
 		return m, nil
@@ -797,14 +836,10 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 		return m.openQuickFilter()
 
 	case key.Matches(msg, m.keys.Sort):
-		m = m.cycleSort()
-		m.statusMsg = ""
-		m.knownTotalPages = nil
-		m.knownTotalRows = nil
-		if m.executor != nil {
-			m.loading = true
-			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
-		}
+		return m.handleSortKey()
+
+	case key.Matches(msg, m.keys.SortManager):
+		return m.openSortManager()
 
 	case key.Matches(msg, m.keys.Export):
 		m.mode = modeExportMenu
@@ -974,7 +1009,7 @@ func resolveSavePath(configPath string) (string, error) {
 }
 
 // buildPerspectiveConfig constructs a PerspectiveConfig from active row browser state.
-func buildPerspectiveConfig(name string, cols []string, filters []dataset.Filter, sort *dataset.Sort) config.PerspectiveConfig {
+func buildPerspectiveConfig(name string, cols []string, filters []dataset.Filter, sorts []dataset.Sort) config.PerspectiveConfig {
 	p := config.PerspectiveConfig{Name: name, Columns: cols}
 	for _, f := range filters {
 		p.Filters = append(p.Filters, config.FilterConfig{
@@ -983,8 +1018,8 @@ func buildPerspectiveConfig(name string, cols []string, filters []dataset.Filter
 			Value:    f.Value,
 		})
 	}
-	if sort != nil {
-		p.Sort = []config.SortConfig{{Column: sort.Column, Desc: sort.Desc}}
+	for _, s := range sorts {
+		p.Sort = append(p.Sort, config.SortConfig{Column: s.Column, Desc: s.Desc})
 	}
 	return p
 }
@@ -1290,21 +1325,88 @@ func (m RowBrowserModel) popDrillStack() (RowBrowserModel, tea.Cmd) {
 	return m, nil
 }
 
-// cycleSort advances the sort state for the column at colCursor:
+// cycleSort advances the sort state for the single column at colCursor:
 // no sort → ASC → DESC → no sort.
+// Only called when the cursor column already has an active sort or there is no sort.
 func (m RowBrowserModel) cycleSort() RowBrowserModel {
 	if m.result == nil || m.colCursor >= len(m.result.Columns) {
 		return m
 	}
 	col := m.result.Columns[m.colCursor].Name
-	if m.sort == nil || m.sort.Column != col {
-		m.sort = &dataset.Sort{Column: col, Desc: false}
-	} else if !m.sort.Desc {
-		m.sort = &dataset.Sort{Column: col, Desc: true}
-	} else {
-		m.sort = nil
+
+	// Find existing entry for this column.
+	for i, s := range m.sort {
+		if s.Column == col {
+			if !s.Desc {
+				// ASC → DESC
+				m.sort[i].Desc = true
+			} else {
+				// DESC → off: remove entry
+				m.sort = append(m.sort[:i], m.sort[i+1:]...)
+			}
+			return m
+		}
 	}
+
+	// No existing entry: off → ASC (single-sort mode — replace everything).
+	m.sort = []dataset.Sort{{Column: col, Desc: false}}
 	return m
+}
+
+// handleSortKey implements the progressive s-key logic:
+// - no active sort → cycle (no overlay)
+// - sort active on same column as cursor → cycle (no overlay)
+// - sort active on different column than cursor → open sort manager pre-populated
+func (m RowBrowserModel) handleSortKey() (RowBrowserModel, tea.Cmd) {
+	if m.result == nil || m.colCursor >= len(m.result.Columns) {
+		return m, nil
+	}
+	col := m.result.Columns[m.colCursor].Name
+
+	// Check whether there's an active sort on the cursor column.
+	cursorHasSort := false
+	for _, s := range m.sort {
+		if s.Column == col {
+			cursorHasSort = true
+			break
+		}
+	}
+
+	// No sort at all OR sort is only/already on this column → cycle, no overlay.
+	if len(m.sort) == 0 || cursorHasSort {
+		m = m.cycleSort()
+		m.statusMsg = ""
+		m.knownTotalPages = nil
+		m.knownTotalRows = nil
+		if m.executor != nil {
+			m.loading = true
+			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
+		}
+		return m, nil
+	}
+
+	// Sort active on a different column → open sort manager with cursor column pre-added.
+	newSort := append(append([]dataset.Sort{}, m.sort...), dataset.Sort{Column: col, Desc: false})
+	return m.openSortManagerWithSort(newSort)
+}
+
+// openSortManager opens the sort manager with the current sort state.
+func (m RowBrowserModel) openSortManager() (RowBrowserModel, tea.Cmd) {
+	return m.openSortManagerWithSort(append([]dataset.Sort{}, m.sort...))
+}
+
+// openSortManagerWithSort opens the sort manager pre-populated with the given sort state.
+func (m RowBrowserModel) openSortManagerWithSort(current []dataset.Sort) (RowBrowserModel, tea.Cmd) {
+	if m.result == nil {
+		return m, nil
+	}
+	cols := make([]string, len(m.result.Columns))
+	for i, c := range m.result.Columns {
+		cols[i] = c.Name
+	}
+	m.sortManager = NewSortManagerModel(current, cols, m.width, m.height)
+	m.mode = modeSortManager
+	return m, nil
 }
 
 func (m RowBrowserModel) startExport(format export.Format) (RowBrowserModel, tea.Cmd) {
@@ -1390,7 +1492,7 @@ func (m RowBrowserModel) DrillDepth() int              { return len(m.drillStack
 func (m RowBrowserModel) IsLoading() bool              { return m.loading }
 func (m RowBrowserModel) Err() error                   { return m.err }
 func (m RowBrowserModel) Filters() []dataset.Filter    { return m.filters }
-func (m RowBrowserModel) ActiveSort() *dataset.Sort    { return m.sort }
+func (m RowBrowserModel) ActiveSort() []dataset.Sort   { return m.sort }
 func (m RowBrowserModel) IsFilterModalOpen() bool      { return m.mode == modeFilterModal }
 func (m RowBrowserModel) IsPageSizeInputOpen() bool    { return m.mode == modePageSizeInput }
 func (m RowBrowserModel) IsSavePerspectiveOpen() bool  { return m.mode == modeSavePerspective }
@@ -1420,7 +1522,7 @@ func (m RowBrowserModel) ExportMenuActive() bool { return m.mode == modeExportMe
 // BlocksGlobalKeys returns true when the row browser is consuming keys that
 // should not be intercepted by the App (modal open, local search input active).
 func (m RowBrowserModel) BlocksGlobalKeys() bool {
-	return m.mode == modeFilterModal || m.localSearch.InputActive() || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker || m.mode == modeSavePerspective
+	return m.mode == modeFilterModal || m.localSearch.InputActive() || m.mode == modePageSizeInput || m.mode == modeRefByPicker || m.mode == modeColumnPicker || m.mode == modeSavePerspective || m.mode == modeSortManager
 }
 
 // CancelExport cancels an in-progress export if one is running.
@@ -1567,6 +1669,11 @@ func (m RowBrowserModel) View() string {
 		return style.Content.Width(m.width).Height(m.height).Render(overlay)
 	}
 
+	// Sort manager overlay takes the full view area.
+	if m.mode == modeSortManager {
+		return style.Content.Width(m.width).Height(m.height).Render(m.sortManager.View())
+	}
+
 	// Full-screen spinner for the initial root-level load (no parent levels yet).
 	if m.loading && len(m.drillStack) == 0 {
 		return style.Content.Width(m.width).Height(m.height).Render(
@@ -1673,10 +1780,41 @@ func (m RowBrowserModel) View() string {
 }
 
 func (m RowBrowserModel) hasActivePills() bool {
-	if len(m.filters) > 0 || m.sort != nil {
+	if len(m.filters) > 0 || len(m.sort) > 0 {
 		return true
 	}
 	return !m.columns.IsDefault(m.ds.Name)
+}
+
+// sortPillText builds the text for the sort pill (without lipgloss wrapping).
+func sortPillText(sorts []dataset.Sort, maxWidth int) string {
+	var segments []string
+	for _, s := range sorts {
+		arrow := "↑"
+		if s.Desc {
+			arrow = "↓"
+		}
+		segments = append(segments, s.Column+" "+arrow)
+	}
+	full := strings.Join(segments, " · ")
+	// Account for the 2-space padding lipgloss adds inside the pill style.
+	if maxWidth > 4 && lipgloss.Width(full) > maxWidth-4 {
+		// Truncate: keep adding segments until we exceed the width.
+		var kept []string
+		for _, seg := range segments {
+			candidate := strings.Join(append(kept, seg), " · ")
+			if lipgloss.Width(candidate+" · …") > maxWidth-4 {
+				break
+			}
+			kept = append(kept, seg)
+		}
+		if len(kept) == 0 {
+			full = "…"
+		} else {
+			full = strings.Join(kept, " · ") + " · …"
+		}
+	}
+	return full
 }
 
 func (m RowBrowserModel) renderActivePills() string {
@@ -1684,12 +1822,9 @@ func (m RowBrowserModel) renderActivePills() string {
 	for _, f := range m.filters {
 		parts = append(parts, style.FilterPill.Render(formatFilterLabel(f)))
 	}
-	if m.sort != nil {
-		arrow := "↑"
-		if m.sort.Desc {
-			arrow = "↓"
-		}
-		parts = append(parts, style.FilterPillSelected.Render(m.sort.Column+" "+arrow))
+	if len(m.sort) > 0 {
+		text := sortPillText(m.sort, m.width)
+		parts = append(parts, style.FilterPillSelected.Render(text))
 	}
 	if !m.columns.IsDefault(m.ds.Name) {
 		visible, total := m.columns.CountVisible(m.ds.Name)
@@ -1839,7 +1974,32 @@ func fkColSet(fks []db.ForeignKey) map[string]bool {
 	return m
 }
 
-func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.Sort, cursor int, fkCols map[string]bool, refByCols map[string]bool) string {
+// sortSuperscripts are the Unicode superscript digits used for sort-priority annotations.
+var sortSuperscripts = []string{"¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"}
+
+// sortIndicator returns the direction arrow + superscript for the given sort entry.
+func sortIndicator(s dataset.Sort, priority int) string {
+	arrow := "↑"
+	if s.Desc {
+		arrow = "↓"
+	}
+	if priority < len(sortSuperscripts) {
+		return arrow + sortSuperscripts[priority]
+	}
+	return arrow + "⁹" // cap at 9 for display
+}
+
+func buildHeader(cols []db.Column, widths []int, visible []int, sorts []dataset.Sort, cursor int, fkCols map[string]bool, refByCols map[string]bool) string {
+	// Build a map from column name to its sort entry and priority index.
+	type sortEntry struct {
+		s        dataset.Sort
+		priority int
+	}
+	sortMap := make(map[string]sortEntry, len(sorts))
+	for i, s := range sorts {
+		sortMap[s.Column] = sortEntry{s: s, priority: i}
+	}
+
 	parts := make([]string, len(visible))
 	for j, i := range visible {
 		name := cols[i].Name
@@ -1850,12 +2010,10 @@ func buildHeader(cols []db.Column, widths []int, visible []int, sort *dataset.So
 		// Build the name/sort portion and the optional RefBy glyph separately.
 		var nameStr string
 		var glyphStr string
-		if sort != nil && sort.Column == name {
-			indicator := "↑"
-			if sort.Desc {
-				indicator = "↓"
-			}
-			usable := w - 2
+		if se, ok := sortMap[name]; ok {
+			indicator := sortIndicator(se.s, se.priority)
+			indicatorW := runewidth.StringWidth(indicator)
+			usable := w - indicatorW - 1 // 1 for space
 			if isRefByCol {
 				usable--
 			}

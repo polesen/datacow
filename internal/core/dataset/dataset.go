@@ -26,7 +26,7 @@ type Dataset struct {
 type QueryOptionsPreset struct {
 	Columns []string
 	Filters []Filter
-	Sort    *Sort // nil if no sort configured
+	Sort    []Sort // nil or empty means no sort configured
 }
 
 // QueryOptions controls pagination, filtering, and sorting for a dataset query.
@@ -34,7 +34,7 @@ type QueryOptions struct {
 	Page     int
 	PageSize int
 	Filters  []Filter
-	Sort     *Sort
+	Sort     []Sort // nil or empty means no sort (natural table order)
 
 	// Columns is the ordered list of column names to SELECT.
 	// nil or empty means SELECT * (all columns, schema order).

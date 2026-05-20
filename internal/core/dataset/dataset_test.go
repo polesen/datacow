@@ -284,7 +284,7 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		result, err := ex.Query(ctx, ds, dataset.QueryOptions{
 			Page:     1,
 			PageSize: 10,
-			Sort:     &dataset.Sort{Column: "name", Desc: false},
+			Sort:     []dataset.Sort{{Column: "name", Desc: false}},
 		})
 		if err != nil {
 			t.Fatalf("Query: %v", err)
@@ -303,7 +303,7 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		result, err := ex.Query(ctx, ds, dataset.QueryOptions{
 			Page:     1,
 			PageSize: 10,
-			Sort:     &dataset.Sort{Column: "name", Desc: true},
+			Sort:     []dataset.Sort{{Column: "name", Desc: true}},
 		})
 		if err != nil {
 			t.Fatalf("Query: %v", err)
@@ -503,6 +503,87 @@ func runExecutorTests(t *testing.T, client db.Client) {
 		})
 		if err == nil {
 			t.Error("expected error for injection attempt in column name")
+		}
+	})
+
+	// CL01: multi-column sort emits ORDER BY col1 ASC, col2 DESC.
+	t.Run("TestAC_CL01_MultiColumnSortOrderBy", func(t *testing.T) {
+		result, err := ex.Query(ctx, ds, dataset.QueryOptions{
+			Page:     1,
+			PageSize: 10,
+			Sort:     []dataset.Sort{{Column: "name", Desc: false}, {Column: "id", Desc: true}},
+		})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		if len(result.Rows) == 0 {
+			t.Fatal("expected rows")
+		}
+	})
+
+	// CL01 (SQL dataset variant): multi-column sort works on SQL datasets.
+	t.Run("TestAC_CL01_MultiColumnSort_SQLDataset", func(t *testing.T) {
+		sqlDS := dataset.Dataset{
+			Name: "all_products",
+			SQL:  "SELECT id, name, price FROM ds_products",
+		}
+		result, err := ex.Query(ctx, sqlDS, dataset.QueryOptions{
+			Page:     1,
+			PageSize: 10,
+			Sort:     []dataset.Sort{{Column: "name", Desc: false}, {Column: "price", Desc: true}},
+		})
+		if err != nil {
+			t.Fatalf("Query sql dataset multi-sort: %v", err)
+		}
+		if len(result.Rows) == 0 {
+			t.Fatal("expected rows from sql dataset multi-sort")
+		}
+	})
+
+	// CL02: nil and empty Sort produce no ORDER BY.
+	t.Run("TestAC_CL02_NilAndEmptySortNoOrderBy", func(t *testing.T) {
+		r1, err := ex.Query(ctx, ds, dataset.QueryOptions{Page: 1, PageSize: 10, Sort: nil})
+		if err != nil {
+			t.Fatalf("nil sort: %v", err)
+		}
+		r2, err := ex.Query(ctx, ds, dataset.QueryOptions{Page: 1, PageSize: 10, Sort: []dataset.Sort{}})
+		if err != nil {
+			t.Fatalf("empty sort: %v", err)
+		}
+		if len(r1.Rows) != len(r2.Rows) {
+			t.Errorf("nil and empty sort produced different row counts: %d vs %d", len(r1.Rows), len(r2.Rows))
+		}
+	})
+
+	// CL03: unknown sort column rejected.
+	t.Run("TestAC_CL03_UnknownSortColumnRejected", func(t *testing.T) {
+		_, err := ex.Query(ctx, ds, dataset.QueryOptions{
+			Page:     1,
+			PageSize: 10,
+			Sort:     []dataset.Sort{{Column: "nonexistent_column", Desc: false}},
+		})
+		if err == nil {
+			t.Error("expected error for unknown sort column")
+		}
+	})
+
+	// CL04: single-element Sort produces the same result as the old single-sort path.
+	t.Run("TestAC_CL04_SingleElementSortMatchesSingleSort", func(t *testing.T) {
+		r1, err := ex.Query(ctx, ds, dataset.QueryOptions{
+			Page:     1,
+			PageSize: 10,
+			Sort:     []dataset.Sort{{Column: "name", Desc: false}},
+		})
+		if err != nil {
+			t.Fatalf("single sort: %v", err)
+		}
+		if len(r1.Rows) < 2 {
+			t.Fatal("expected at least 2 rows")
+		}
+		first := stringVal(r1.Rows[0]["name"])
+		second := stringVal(r1.Rows[1]["name"])
+		if first > second {
+			t.Errorf("single-element slice sort: expected ASC, got %q before %q", first, second)
 		}
 	})
 }

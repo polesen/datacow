@@ -80,12 +80,16 @@ func (e *Executor) Query(ctx context.Context, ds Dataset, opts QueryOptions) (*Q
 	where, args := e.buildWhere(opts.Filters, 1)
 
 	order := ""
-	if opts.Sort != nil {
-		dir := "ASC"
-		if opts.Sort.Desc {
-			dir = "DESC"
+	if len(opts.Sort) > 0 {
+		parts := make([]string, len(opts.Sort))
+		for i, s := range opts.Sort {
+			dir := "ASC"
+			if s.Desc {
+				dir = "DESC"
+			}
+			parts[i] = s.Column + " " + dir
 		}
-		order = " ORDER BY " + opts.Sort.Column + " " + dir
+		order = " ORDER BY " + strings.Join(parts, ", ")
 	}
 
 	offset := (page - 1) * pageSize
@@ -247,12 +251,12 @@ func (e *Executor) validateOptions(opts QueryOptions, colSet map[string]bool) er
 			return fmt.Errorf("unsupported filter operator %q", f.Operator)
 		}
 	}
-	if opts.Sort != nil {
-		if !identRe.MatchString(opts.Sort.Column) {
-			return fmt.Errorf("invalid sort column name %q", opts.Sort.Column)
+	for _, s := range opts.Sort {
+		if !identRe.MatchString(s.Column) {
+			return fmt.Errorf("invalid sort column name %q", s.Column)
 		}
-		if !colSet[opts.Sort.Column] {
-			return fmt.Errorf("unknown sort column %q", opts.Sort.Column)
+		if !colSet[s.Column] {
+			return fmt.Errorf("unknown sort column %q", s.Column)
 		}
 	}
 	for _, c := range opts.Columns {
