@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"
+CLAUDE_EFFORT="${CLAUDE_EFFORT:-high}"
+
 # Load local env so GITHUB_TOKEN and other vars are available to the devcontainer CLI.
 # GITHUB_TOKEN is defined without `export` in .env.local to avoid polluting the host gh auth;
 # export it explicitly here so the devcontainer CLI picks it up.
@@ -73,12 +76,12 @@ npx @devcontainers/cli exec --workspace-folder . bash .devcontainer/preflight.sh
 if [ -n "$TASK_FILE" ]; then
   echo "Running Claude on $TASK_FILE (branch: $BRANCH)..."
   npx @devcontainers/cli exec --workspace-folder . \
-    claude --dangerously-skip-permissions \
+    claude --model "$CLAUDE_MODEL" --effort "$CLAUDE_EFFORT" --dangerously-skip-permissions \
     "Read CLAUDE.md and tasks/definition-of-done.md, then complete the task described in $TASK_FILE. Verify all acceptance criteria in tasks/definition-of-done.md are met before finishing."
 
   echo ""
   echo "Claude session complete."
 else
   echo "Starting interactive Claude session..."
-  npx @devcontainers/cli exec --workspace-folder . claude --dangerously-skip-permissions
+  npx @devcontainers/cli exec --workspace-folder . claude --model "$CLAUDE_MODEL" --effort "$CLAUDE_EFFORT" --dangerously-skip-permissions
 fi
