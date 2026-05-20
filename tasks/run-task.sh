@@ -10,21 +10,35 @@ if [ -f ".env.local" ]; then
 fi
 
 usage() {
-  echo "Usage: $0 [--rebuild] [<task-file>]" >&2
+  echo "Usage: $0 [--rebuild] [--thorough] [<task-file>]" >&2
   echo "Example: $0 tasks/ready/fuzzy-goto.md" >&2
   echo "         $0 ready/fuzzy-goto.md" >&2
   echo "         $0 --rebuild ready/fuzzy-goto.md" >&2
-  echo "         $0                               # interactive: no task, no branch" >&2
+  echo "         $0 --thorough ready/fuzzy-goto.md  # opus-4-7 + xhigh effort" >&2
+  echo "         $0                                  # interactive: no task, no branch" >&2
 }
 
 REBUILD=""
+PRESET="standard"
 
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
-    --rebuild) REBUILD="--remove-existing-container"; shift ;;
+    --rebuild)  REBUILD="--remove-existing-container"; shift ;;
+    --thorough) PRESET="thorough"; shift ;;
     *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
   esac
 done
+
+case "$PRESET" in
+  standard)
+    CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"
+    CLAUDE_EFFORT="${CLAUDE_EFFORT:-high}"
+    ;;
+  thorough)
+    CLAUDE_MODEL="${CLAUDE_MODEL:-claude-opus-4-7}"
+    CLAUDE_EFFORT="${CLAUDE_EFFORT:-xhigh}"
+    ;;
+esac
 
 if [ "$#" -gt 1 ]; then
   usage
@@ -73,12 +87,12 @@ npx @devcontainers/cli exec --workspace-folder . bash .devcontainer/preflight.sh
 if [ -n "$TASK_FILE" ]; then
   echo "Running Claude on $TASK_FILE (branch: $BRANCH)..."
   npx @devcontainers/cli exec --workspace-folder . \
-    claude --dangerously-skip-permissions \
+    claude --model "$CLAUDE_MODEL" --effort "$CLAUDE_EFFORT" --dangerously-skip-permissions \
     "Read CLAUDE.md and tasks/definition-of-done.md, then complete the task described in $TASK_FILE. Verify all acceptance criteria in tasks/definition-of-done.md are met before finishing."
 
   echo ""
   echo "Claude session complete."
 else
   echo "Starting interactive Claude session..."
-  npx @devcontainers/cli exec --workspace-folder . claude --dangerously-skip-permissions
+  npx @devcontainers/cli exec --workspace-folder . claude --model "$CLAUDE_MODEL" --effort "$CLAUDE_EFFORT" --dangerously-skip-permissions
 fi

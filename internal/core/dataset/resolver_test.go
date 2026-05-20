@@ -214,7 +214,7 @@ func TestAC_CF07_ResolverEmitsPerspectives(t *testing.T) {
 	if len(fc.Preset.Filters) != 1 || fc.Preset.Filters[0].Column != "result" {
 		t.Errorf("unexpected Preset.Filters: %v", fc.Preset.Filters)
 	}
-	if fc.Preset.Sort == nil || fc.Preset.Sort.Column != "ts" || !fc.Preset.Sort.Desc {
+	if len(fc.Preset.Sort) == 0 || fc.Preset.Sort[0].Column != "ts" || !fc.Preset.Sort[0].Desc {
 		t.Errorf("unexpected Preset.Sort: %+v", fc.Preset.Sort)
 	}
 

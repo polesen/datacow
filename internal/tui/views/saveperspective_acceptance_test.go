@@ -360,7 +360,7 @@ func TestAC_RB02_PresetFiltersApplied(t *testing.T) {
 // RB03: Preset.Sort applied → sort pill with column name and "↓".
 func TestAC_RB03_PresetSortApplied(t *testing.T) {
 	preset := &dataset.QueryOptionsPreset{
-		Sort: &dataset.Sort{Column: "timestamp", Desc: true},
+		Sort: []dataset.Sort{{Column: "timestamp", Desc: true}},
 	}
 	m := makePerspectiveModel(preset)
 

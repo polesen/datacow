@@ -837,7 +837,7 @@ func TestRowBrowserModel_Sort_Cycle(t *testing.T) {
 	// First s: ASC
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	s := m.ActiveSort()
-	if s == nil || s.Column != "id" || s.Desc {
+	if len(s) == 0 || s[0].Column != "id" || s[0].Desc {
 		t.Errorf("expected sort id ASC, got %v", s)
 	}
 
@@ -845,7 +845,7 @@ func TestRowBrowserModel_Sort_Cycle(t *testing.T) {
 	m, _ = m.Update(views.RowsLoadedMsg(result)) // loaded first to unblock
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	s = m.ActiveSort()
-	if s == nil || s.Column != "id" || !s.Desc {
+	if len(s) == 0 || s[0].Column != "id" || !s[0].Desc {
 		t.Errorf("expected sort id DESC, got %v", s)
 	}
 
@@ -853,7 +853,7 @@ func TestRowBrowserModel_Sort_Cycle(t *testing.T) {
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	s = m.ActiveSort()
-	if s != nil {
+	if len(s) != 0 {
 		t.Errorf("expected no sort, got %v", s)
 	}
 }
@@ -1257,5 +1257,159 @@ func TestRowBrowserModel_DrillDown_CompositeFKGraceful(t *testing.T) {
 	}
 	if !m.IsLoading() {
 		t.Error("expected loading after drill-down into product_id")
+	}
+}
+
+// --- HD: Column header display tests ---
+
+// HD01: multi-sort shows ↑¹ and ↓² adjacent to sorted column names.
+func TestAC_HD01_MultiSortHeaderSuperscripts(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "name"}, {Name: "id"}},
+		[]map[string]any{{"name": "Alice", "id": int64(1)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Inject multi-sort directly via S key + sort manager confirm path.
+	// Use S to open manager, then Enter to confirm with a pre-built sort.
+	// Instead, directly set state through the test-visible row browser Update path:
+	// First press s on "name" (cursor=0) → single sort name ASC.
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}) // name ASC
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Move cursor to "id" and press s → should open sort manager with name+id.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight}) // cursor → id
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}) // opens overlay
+	// Confirm sort manager (press enter).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	v := m.View()
+	if !strings.Contains(v, "↑¹") {
+		t.Errorf("expected ↑¹ marker on name, got:\n%s", v)
+	}
+	if !strings.Contains(v, "↑²") {
+		t.Errorf("expected ↑² marker on id, got:\n%s", v)
+	}
+}
+
+// HD02: nil sort → no superscript markers.
+func TestAC_HD02_NoSortNoSuperscripts(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "name"}, {Name: "id"}},
+		[]map[string]any{{"name": "Alice", "id": int64(1)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	v := m.View()
+	for _, marker := range []string{"↑¹", "↓¹", "↑²", "↓²"} {
+		if strings.Contains(v, marker) {
+			t.Errorf("expected no superscript %q when no sort, got:\n%s", marker, v)
+		}
+	}
+}
+
+// HD03: unsorted columns in multi-sort have no sort marker.
+func TestAC_HD03_UnsortedColumnsNoMarker(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "name"}, {Name: "id"}, {Name: "email"}},
+		[]map[string]any{{"name": "Alice", "id": int64(1), "email": "a@b.com"}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Sort only on "name".
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}) // name ASC
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	v := m.View()
+	// "id" and "email" columns should have no sort markers.
+	if strings.Contains(v, "↑²") || strings.Contains(v, "↓²") {
+		t.Errorf("expected no ↑²/↓² on unsorted columns, got:\n%s", v)
+	}
+}
+
+// --- PL: Pill bar display tests ---
+
+// PL01: multi-sort pill shows both columns and a separator.
+func TestAC_PL01_MultiSortPillBothColumns(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "name"}, {Name: "created_at"}},
+		[]map[string]any{{"name": "Alice", "created_at": "2024-01-01"}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Sort on name ASC, then move to created_at and open manager → pre-added.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}) // name ASC
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight}) // cursor → created_at
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}) // opens manager with name+created_at
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	v := m.View()
+	if !strings.Contains(v, "name") {
+		t.Errorf("expected 'name' in sort pill, got:\n%s", v)
+	}
+	if !strings.Contains(v, "created_at") {
+		t.Errorf("expected 'created_at' in sort pill, got:\n%s", v)
+	}
+	if !strings.Contains(v, "·") {
+		t.Errorf("expected separator '·' in multi-sort pill, got:\n%s", v)
+	}
+}
+
+// PL02: nil sort → no sort pill.
+func TestAC_PL02_NoSortNoPill(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "id"}},
+		[]map[string]any{{"id": int64(1)}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	v := m.View()
+	// No sort arrow glyphs should appear in pill area.
+	if strings.Contains(v, "↑¹") || strings.Contains(v, "↓¹") {
+		t.Errorf("expected no sort pill when sort is nil, got:\n%s", v)
+	}
+}
+
+// PL03: single-element sort → pill contains column and direction without separator.
+func TestAC_PL03_SingleSortPillNoSeparator(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	result := makeResult(1, 1, 1,
+		[]db.Column{{Name: "name"}},
+		[]map[string]any{{"name": "Alice"}},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}) // name ASC
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	v := m.View()
+	if !strings.Contains(v, "name") {
+		t.Errorf("expected 'name' in sort pill, got:\n%s", v)
+	}
+	if !strings.Contains(v, "↑") {
+		t.Errorf("expected ↑ in sort pill, got:\n%s", v)
+	}
+	if strings.Contains(v, "·") {
+		t.Errorf("expected no separator '·' for single sort, got:\n%s", v)
 	}
 }
