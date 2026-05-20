@@ -21,7 +21,7 @@ package views_test
 //   SP01: overlay View() contains required strings               → TestAC_SP01_OverlayViewContainsRequiredStrings
 //   SP02: Enter with empty name shows error                      → TestAC_SP02_EmptyNameShowsError
 //   SP03: P key in keys.Map and helpoverlay                      → TestAC_SP03_PKeyMappedAndInHelp
-//   SP04: P on KindPerspective does not open overlay             → TestAC_SP04_PDisabledOnPerspective
+//   SP04: P on KindPerspective opens overlay pre-filled with name → TestAC_SP04_PPrefilledOnPerspective
 //   TL01: table with perspective has expand indicator            → TestAC_TL01_TableWithPerspectiveHasExpandIndicator
 //   TL02: perspective name and [P] appear after expand           → TestAC_TL02_PerspectiveVisibleAfterExpand
 //   TL03: filter "failed" shows parent table and perspective     → TestAC_TL03_FilterShowsPerspective
@@ -30,12 +30,12 @@ package views_test
 //   RB01: preset columns → cols N/M pill, extra column absent    → TestAC_RB01_PresetColumnsApplied
 //   RB02: preset filters → filter pill visible                   → TestAC_RB02_PresetFiltersApplied
 //   RB03: preset sort → sort pill with column and ↓             → TestAC_RB03_PresetSortApplied
-//   RB04: P on KindPerspective does not open overlay             → TestAC_RB04_PDisabledOnPerspective
+//   RB04: P on KindPerspective opens overlay pre-filled with name → TestAC_RB04_PPrefilledOnPerspective
 //   RB05: P on KindTable opens save overlay                      → TestAC_RB05_PEnabledOnTable
 //   AC01: end-to-end save                                        → tui/saveperspective_acceptance_test.go: TestAC_AC01_SavePerspectiveEndToEnd
 //   AC02: schema explorer refresh after save                     → tui/saveperspective_acceptance_test.go: TestAC_AC02_SchemaExplorerRefresh
 //   AC03: navigate to perspective                                 → tui/saveperspective_acceptance_test.go: TestAC_AC03_NavigateToPerspective
-//   AC04: P disabled in perspective                              → tui/saveperspective_acceptance_test.go: TestAC_AC04_PDisabledInPerspective
+//   AC04: P opens pre-filled overlay on perspective              → tui/saveperspective_acceptance_test.go: TestAC_AC04_PPrefilledOnPerspective
 //   AC05: zero-config file creation                              → tui/saveperspective_acceptance_test.go: TestAC_AC05_ZeroConfigFileCreation
 
 import (
@@ -127,8 +127,8 @@ func TestAC_SP03_PKeyMappedAndInHelp(t *testing.T) {
 	t.Error("SavePerspective must appear in FullHelp")
 }
 
-// SP04: P key on a KindPerspective dataset does not open the save overlay.
-func TestAC_SP04_PDisabledOnPerspective(t *testing.T) {
+// SP04: P key on a KindPerspective dataset opens the overlay pre-filled with the perspective name.
+func TestAC_SP04_PPrefilledOnPerspective(t *testing.T) {
 	ds := dataset.Dataset{
 		Name:        "Failed Calls",
 		Table:       "api_logs",
@@ -147,9 +147,15 @@ func TestAC_SP04_PDisabledOnPerspective(t *testing.T) {
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	if !m.IsSavePerspectiveOpen() {
+		t.Error("P on KindPerspective must open the save overlay")
+	}
 	v := m.View()
-	if strings.Contains(v, "Save perspective") {
-		t.Errorf("P on KindPerspective must NOT open save overlay, got:\n%s", v)
+	if !strings.Contains(v, "Save perspective") {
+		t.Errorf("expected 'Save perspective' overlay on P, got:\n%s", v)
+	}
+	if !strings.Contains(v, "Failed Calls") {
+		t.Errorf("expected pre-filled name 'Failed Calls' in overlay, got:\n%s", v)
 	}
 }
 
@@ -373,8 +379,8 @@ func TestAC_RB03_PresetSortApplied(t *testing.T) {
 	}
 }
 
-// RB04: P key while viewing a KindPerspective dataset does NOT open the save overlay.
-func TestAC_RB04_PDisabledOnPerspective(t *testing.T) {
+// RB04: P key while viewing a KindPerspective dataset opens the overlay pre-filled with the perspective name.
+func TestAC_RB04_PPrefilledOnPerspective(t *testing.T) {
 	preset := &dataset.QueryOptionsPreset{}
 	m := makePerspectiveModel(preset)
 
@@ -385,8 +391,12 @@ func TestAC_RB04_PDisabledOnPerspective(t *testing.T) {
 	m, _ = m.Update(views.RowsLoadedMsg(result))
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
-	if m.IsSavePerspectiveOpen() {
-		t.Error("save perspective overlay must NOT open when viewing a KindPerspective dataset")
+	if !m.IsSavePerspectiveOpen() {
+		t.Error("P on KindPerspective must open the save overlay")
+	}
+	v := m.View()
+	if !strings.Contains(v, "Failed Calls") {
+		t.Errorf("overlay must be pre-filled with perspective name 'Failed Calls', got:\n%s", v)
 	}
 }
 

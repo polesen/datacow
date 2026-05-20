@@ -27,6 +27,13 @@ func NewSavePerspectiveModel() SavePerspectiveModel {
 	return SavePerspectiveModel{input: ti}
 }
 
+// WithInitialName pre-populates the name input with an existing perspective name
+// so the user can confirm or edit before saving.
+func (m SavePerspectiveModel) WithInitialName(name string) SavePerspectiveModel {
+	m.input.SetValue(name)
+	return m
+}
+
 // Focus focuses the text input and returns the Cmd needed.
 func (m SavePerspectiveModel) Focus() (SavePerspectiveModel, tea.Cmd) {
 	var cmd tea.Cmd

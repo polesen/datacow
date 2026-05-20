@@ -92,7 +92,7 @@ Add `ConfigPath string` to `internal/tui/app.go`'s `Config` struct. Empty string
 
 A new minimal overlay in `internal/tui/views/saveperspective.go`, similar to the page-size picker. It contains a single `textinput.Model` and an optional error message line.
 
-**Keybinding:** `P` (uppercase). Available in the row browser when `result != nil` **and** the current dataset is `KindTable` or `KindView` (not `KindPerspective`, not `KindDataset`).
+**Keybinding:** `P` (uppercase). Available in the row browser when `result != nil` **and** the current dataset is `KindTable`, `KindView`, or `KindPerspective` (not `KindDataset`).
 
 **Rendering:**
 ```
@@ -148,7 +148,7 @@ When a `KindPerspective` dataset is opened:
 2. Pre-seed filter state from `Preset.Filters`.
 3. Pre-seed sort from `Preset.Sort` (nil = no sort).
 4. The pill bar shows filter/sort/cols pills as normal — they reflect the active preset state.
-5. `P` key is **disabled** when the current dataset is `KindPerspective`. The help bar entry for `P` is only rendered when the key is active.
+5. `P` key is **available** when the current dataset is `KindPerspective`. The overlay is pre-filled with the current perspective name so the user can confirm (overwrite) or rename (creates a sibling perspective). `AppendPerspective` is an upsert-by-name, so confirming with the same name updates the existing perspective.
 
 ## UX Summary
 
@@ -199,8 +199,8 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern (same convention a
 
 - SP01: `View()` of a freshly opened overlay contains `"Save perspective"`, a cursor/input area, and both `"Enter confirm"` and `"Esc cancel"`.
 - SP02: Sending `Enter` with an empty name input renders `"name is required"` in the view and does **not** emit a close/save message — the overlay stays open.
-- SP03: `P` key is present in `keys.Map` with value `"P"`, wired in the row browser's `Update()`, and present in `helpoverlay.go`. The help bar of the row browser contains `"P"` only when the active dataset is not `KindPerspective`.
-- SP04: `P` key press on a `KindPerspective` dataset does **not** open the save overlay — the rendered view after sending `P` must not contain `"Save perspective"`.
+- SP03: `P` key is present in `keys.Map` with value `"P"`, wired in the row browser's `Update()`, and present in `helpoverlay.go`. The help bar always shows `"P"` regardless of dataset kind.
+- SP04: `P` key press on a `KindPerspective` dataset **does** open the save overlay, pre-filled with the perspective name — the rendered view must contain `"Save perspective"` and the perspective name.
 
 ### TL — Table list perspectives (view unit tests in `tablelist_test.go` or `tablelist_perspectives_test.go`)
 
@@ -215,7 +215,7 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern (same convention a
 - RB01: Opening a `KindPerspective` dataset with `Preset.Columns = ["id", "name"]` and a 3-column result → view contains `"cols 2/3"` pill; `"extra"` column header is absent from the rendered table.
 - RB02: Opening a `KindPerspective` dataset with `Preset.Filters = [{Column:"result", Operator:"!=", Value:200}]` → view contains a filter pill with `"result"` and `"200"` (or `"!="`) visible.
 - RB03: Opening a `KindPerspective` dataset with `Preset.Sort = &Sort{Column:"timestamp", Desc:true}` → view contains the sort pill with `"timestamp"` and a descending indicator (`"↓"`).
-- RB04: Sending `P` key while viewing a `KindPerspective` dataset → `View()` does not contain `"Save perspective"`.
+- RB04: Sending `P` key while viewing a `KindPerspective` dataset → `View()` contains `"Save perspective"` and the perspective name (overlay is pre-filled).
 - RB05: Switching from a `KindPerspective` dataset to a plain `KindTable` dataset (via `TablesLoadedMsg` or dataset swap) → sending `P` opens the overlay (view contains `"Save perspective"`).
 
 ### AC — App integration tests (in `app_test.go` or `saveperspective_acceptance_test.go`)
@@ -223,7 +223,7 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern (same convention a
 - AC01 (end-to-end save): Load a table into the row browser with a result. Press `P`, type a name, press `Enter`. Assert: `View()` no longer contains `"Save perspective"`; `View()` contains `"Saved to"` followed by a non-empty path string.
 - AC02 (schema explorer refresh after save): After AC01, the table list `View()` contains an expand indicator for the parent table and, after sending the expand key, contains the perspective name.
 - AC03 (navigate to perspective): After AC02, navigate cursor to the perspective sub-line and press `Enter`. Assert: row browser `View()` contains the filter pill value that was active when saving (proving pre-seeding works end-to-end).
-- AC04 (P disabled in perspective): With a perspective open in the row browser, send `P`. Assert: `View()` does not contain `"Save perspective"`.
+- AC04 (P pre-filled on perspective): With a perspective open in the row browser, send `P`. Assert: `View()` contains `"Save perspective"` and the perspective name. Confirm with Enter; assert overlay closes and `"Saved to"` appears (perspective is updated).
 - AC05 (zero-config file creation): Start the TUI with `ConfigPath = ""` and a temp dir as CWD. Save a perspective. Assert: `tui.Config.ConfigPath` is non-empty after the save; the file at that path exists and `config.Load()` on it returns the expected `PerspectiveConfig`.
 
 ## What NOT to Change

@@ -235,8 +235,9 @@ func TestAC_AC03_NavigateToPerspective(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
 
-// AC04: With a perspective open in the row browser, sending P does not open the save overlay.
-func TestAC_AC04_PDisabledInPerspective(t *testing.T) {
+// AC04: With a perspective open in the row browser, pressing P opens the save overlay
+// pre-filled with the perspective name. Confirming saves/updates the perspective.
+func TestAC_AC04_PPrefilledOnPerspective(t *testing.T) {
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	if dsn == "" {
 		t.Skip("TEST_POSTGRES_DSN not set")
@@ -248,7 +249,7 @@ func TestAC_AC04_PDisabledInPerspective(t *testing.T) {
 
 	// Pre-seed a perspective.
 	configPath := filepath.Join(t.TempDir(), "datacow.yaml")
-	p := config.PerspectiveConfig{Name: "No-Edit View"}
+	p := config.PerspectiveConfig{Name: "My Saved View"}
 	if err := config.AppendPerspective(configPath, "", tableName, p); err != nil {
 		t.Fatalf("pre-seed perspective: %v", err)
 	}
@@ -270,33 +271,31 @@ func TestAC_AC04_PDisabledInPerspective(t *testing.T) {
 	}, teatest.WithDuration(acWait), teatest.WithCheckInterval(acCheckInterval))
 
 	// Expand, navigate to perspective, open it.
-	// One Down brings cursor from the table to the perspective (no duplicate entry).
 	tm.Send(tea.KeyMsg{Type: tea.KeyRight})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), "No-Edit View")
+		return strings.Contains(string(bts), "My Saved View")
 	}, teatest.WithDuration(5*time.Second))
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
 	// Wait for row browser to load the perspective.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		s := string(bts)
-		return strings.Contains(s, "2 No-Edit View")
+		return strings.Contains(string(bts), "2 My Saved View")
 	}, teatest.WithDuration(acWait))
 
-	// Press P — must NOT open the save overlay.
+	// Press P — must open the overlay pre-filled with "My Saved View".
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
-
-	// P on a perspective is a no-op: no state changes, so the ANSI compressor emits
-	// nothing and WaitFor would see an empty buffer. Send a resize to flush a fresh
-	// frame into the output buffer.
-	tm.Send(tea.WindowSizeMsg{Width: 161, Height: 40})
-
-	// The row browser should still show the perspective without an overlay.
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
-		return strings.Contains(s, "No-Edit View") && !strings.Contains(s, "Save perspective")
+		return strings.Contains(s, "Save perspective") && strings.Contains(s, "My Saved View")
 	}, teatest.WithDuration(5*time.Second))
+
+	// Confirm with the same name — this re-saves/updates the perspective.
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return !strings.Contains(s, "Save perspective") && strings.Contains(s, "Saved to")
+	}, teatest.WithDuration(acWait))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))

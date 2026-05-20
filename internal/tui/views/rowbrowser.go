@@ -908,7 +908,7 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 		return m.openColumnPicker()
 
 	case key.Matches(msg, m.keys.SavePerspective):
-		if m.ds.Kind == dataset.KindTable || m.ds.Kind == dataset.KindView {
+		if m.ds.Kind == dataset.KindTable || m.ds.Kind == dataset.KindView || m.ds.Kind == dataset.KindPerspective {
 			return m.openSavePerspective()
 		}
 	}
@@ -916,11 +916,16 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 }
 
 // openSavePerspective opens the save-perspective name overlay.
+// When re-opening from a KindPerspective view, the input is pre-filled with the
+// current perspective name so the user can confirm or rename before saving.
 func (m RowBrowserModel) openSavePerspective() (RowBrowserModel, tea.Cmd) {
 	if m.result == nil {
 		return m, nil
 	}
 	sp := NewSavePerspectiveModel()
+	if m.ds.Kind == dataset.KindPerspective {
+		sp = sp.WithInitialName(m.ds.Name)
+	}
 	var focusCmd tea.Cmd
 	m.savePerspective, focusCmd = sp.Focus()
 	m.mode = modeSavePerspective
