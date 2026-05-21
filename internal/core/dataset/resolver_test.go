@@ -30,6 +30,7 @@ func (s *stubClient) Query(_ context.Context, _ string, _ ...any) ([]map[string]
 	return nil, nil
 }
 func (s *stubClient) Placeholder(_ int) string { return "$1" }
+func (s *stubClient) Dialect() db.Dialect      { return db.DialectPostgres }
 
 // TestResolver_NoConfig verifies auto-discovery with no config datasets.
 func TestResolver_NoConfig(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/polesen/datacow/internal/core/completions"
 	"github.com/polesen/datacow/internal/core/config"
 	"github.com/polesen/datacow/internal/core/dataset"
 	"github.com/polesen/datacow/internal/core/db"
@@ -33,6 +34,7 @@ const (
 	screenGoto                           // fuzzy goto dialog overlay
 	screenHelp                           // full-screen keybinding reference overlay
 	screenTableInfo                      // table info overlay
+	screenSQLEditor                      // SQL editor overlay for KindDataset
 )
 
 type focus int
@@ -111,6 +113,8 @@ type App struct {
 	schemaCache         *schema.Cache
 	gotoModel           views.GotoModel
 	tableInfoModel      views.TableInfoModel
+	sqlEditor           views.SQLEditorModel
+	statusMsg           string
 	cacheLoading        bool
 	activeClient        db.Client
 	activeResolver      *dataset.Resolver
@@ -386,6 +390,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Clear any sticky status message as soon as the user presses a key.
+		a.statusMsg = ""
 		if key.Matches(msg, a.keys.Quit) {
 			if a.rowBrowserReady {
 				a.rowBrowser.CancelExport()
@@ -635,6 +641,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.screen = a.screenBeforeOverlay
 		return a, nil
 
+	case views.OpenSQLEditorMsg:
+		var completer *completions.Completer
+		if a.schemaCache != nil && a.activeClient != nil {
+			completer = completions.New(a.schemaCache.Tables(), a.activeClient.Dialect())
+		}
+		a.sqlEditor = views.NewSQLEditorModel(msg.Dataset, completer, a.cfg.ConfigPath).
+			SetSize(a.width, a.contentHeight())
+		a.screenBeforeOverlay = a.screen
+		a.screen = screenSQLEditor
+		return a, nil
+
+	case views.DatasetSQLSavedMsg:
+		a.screen = a.screenBeforeOverlay
+		a.statusMsg = "Saved to " + msg.Path
+		savedName := msg.DatasetName
+		savedSQL := msg.SQL
+		var reloadRowBrowserCmd tea.Cmd
+		if a.rowBrowserReady && a.rowBrowser.DatasetName() == savedName &&
+			a.rowBrowser.DatasetKind() == dataset.KindDataset {
+			a.rowBrowser, reloadRowBrowserCmd = a.rowBrowser.ReloadWithSQL(savedSQL)
+		}
+		return a, tea.Batch(a.reloadDatasetsCmd(), reloadRowBrowserCmd)
+
 	case views.GotoSelectedMsg:
 		a.screen = a.screenBeforeOverlay
 		if msg.Datasource != "" {
@@ -751,6 +780,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.gotoModel, _ = a.gotoModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.contentHeight()})
 		a.helpView.SetSize(a.width, a.contentHeight())
 		a.tableInfoModel.SetSize(a.width, a.contentHeight())
+		if a.screen == screenSQLEditor {
+			a.sqlEditor = a.sqlEditor.SetSize(a.width, a.contentHeight())
+		}
 		return a, nil
 	}
 
@@ -779,6 +811,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// static overlay — no message routing needed
 	case screenTableInfo:
 		a.tableInfoModel, cmd = a.tableInfoModel.Update(msg)
+	case screenSQLEditor:
+		a.sqlEditor, cmd = a.sqlEditor.Update(msg)
+		if a.sqlEditor.IsCancelled() {
+			a.screen = a.screenBeforeOverlay
+		}
 	}
 
 	return a, cmd
@@ -826,6 +863,8 @@ func (a *App) renderContent() string {
 		return a.helpView.View()
 	case screenTableInfo:
 		return a.tableInfoModel.View()
+	case screenSQLEditor:
+		return a.sqlEditor.View()
 	case screenError:
 		var msg string
 		if a.initErr != nil {
@@ -980,6 +1019,13 @@ func (a *App) renderStatusBar() string {
 			style.StatusDesc.Render(" schema loading…")
 	}
 
+	if a.statusMsg != "" {
+		if runningPart != "" {
+			runningPart += "  "
+		}
+		runningPart += style.StatusDesc.Render(a.statusMsg)
+	}
+
 	if a.screen == screenSplit && a.focus == focusRowBrowser &&
 		a.rowBrowserReady && !a.rowBrowser.IsLoading() && a.rowBrowser.Err() == nil {
 		return a.renderRowBrowserStatusBar(runningPart)
@@ -1003,6 +1049,8 @@ func (a *App) renderStatusBar() string {
 		bindings = nil // footer rendered inside the TableInfoModel.View()
 	case a.screen == screenGoto:
 		bindings = nil // hint is rendered inside the GotoModel.View()
+	case a.screen == screenSQLEditor:
+		bindings = nil // hints rendered inside the SQLEditorModel.View()
 	case a.focus == focusSQL:
 		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.SwitchFocus}
 	default:

@@ -205,6 +205,8 @@ func (c *postgresClient) Placeholder(n int) string {
 	return "$" + strconv.Itoa(n)
 }
 
+func (c *postgresClient) Dialect() Dialect { return DialectPostgres }
+
 func (c *postgresClient) Close() error {
 	return c.db.Close()
 }

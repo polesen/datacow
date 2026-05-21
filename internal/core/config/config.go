@@ -152,6 +152,28 @@ func AppendPerspective(path, datasource, tableName string, p PerspectiveConfig) 
 	return Save(path, cfg)
 }
 
+// UpdateDatasetSQL replaces the SQL of an existing KindDataset entry whose
+// Name matches datasetName, then atomically writes the config back to path.
+// Returns an error if no matching SQL-bearing dataset exists or if I/O fails.
+func UpdateDatasetSQL(path, datasetName, newSQL string) error {
+	cfg, err := Load(path)
+	if err != nil {
+		return err
+	}
+	idx := -1
+	for i, ds := range cfg.Datasets {
+		if ds.Name == datasetName && ds.SQL != "" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return fmt.Errorf("dataset not found in config: %s", datasetName)
+	}
+	cfg.Datasets[idx].SQL = newSQL
+	return Save(path, cfg)
+}
+
 // DefaultPaths returns the search order for config files.
 func DefaultPaths() []string {
 	home, _ := os.UserHomeDir()

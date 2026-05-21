@@ -36,6 +36,7 @@ func (s *stubClient) Query(_ context.Context, _ string, _ ...any) ([]map[string]
 	return s.rows, nil
 }
 func (s *stubClient) Placeholder(n int) string { return fmt.Sprintf("$%d", n) }
+func (s *stubClient) Dialect() Dialect         { return DialectPostgres }
 func (s *stubClient) Close() error             { return nil }
 
 func TestLoggingClient_ListTables(t *testing.T) {

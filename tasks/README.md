@@ -12,7 +12,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ./tasks/run-task.sh ready/<task>.md
 ```
 
-- [SQL Dataset Editor with Completions](ready/sql-dataset-editor.md)
+(no tasks ready)
 
 ## Done
 
@@ -47,6 +47,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 - [000029 Column Picker — Select and Reorder Visible Columns](done/000029-column-picker.md)
 - [000030 Save Table View as Perspective](done/000030-save-table-perspective.md)
 - [000031 Multi-Column Sort](done/000031-multi-column-sort.md)
+- [000032 SQL Dataset Editor with Completions](done/000032-sql-dataset-editor.md)
 
 ## Future Work
 
