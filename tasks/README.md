@@ -12,7 +12,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ./tasks/run-task.sh ready/<task>.md
 ```
 
-(no tasks ready)
+- [g/G Goto First/Last — Tables Pane and Row Browser](ready/goto-first-last.md)
 
 ## Done
 
