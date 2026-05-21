@@ -237,6 +237,7 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern. The acceptance te
 - ED07: `EditSQL` is bound to `"E"` in `keys.Map`; the row browser emits `OpenSQLEditorMsg` on a `KindDataset` dataset; the help overlay shows the binding in the Dataset section.
 - ED08: `E` in the schema explorer is a no-op on every kind (`KindDataset`, `KindTable`, `KindView`, `KindPerspective`) — no `OpenSQLEditorMsg` is emitted. The editor is reachable only from the row browser.
 - ED09: With the popup open, `↓` / `↑` cycle the popup cursor (in addition to `Tab` / `Shift+Tab`); typing a rune or `Backspace` forwards to the textarea **and** re-runs the completer against the new prefix; the popup closes automatically when no suggestion matches.
+- ED10: When the popup prefix is dot-qualified (e.g. `t.em`), accepting a column suggestion replaces only the part **after the last dot** — the qualifier stays put. So `SELECT u.em FROM users u` with `email` accepted becomes `SELECT u.email FROM users u`, never `SELECT email FROM users u`. The same rule applies to a bare dot (`t.|` → accept `id` → `t.id`).
 
 ### AC — App integration tests (in `app_test.go` or `sqleditor_acceptance_test.go`)
 
@@ -272,6 +273,7 @@ Decisions taken during implementation that diverge from the original draft above
 7. **Schema-explorer entry point removed.** First-pass implementation wired `E` in both the schema explorer (table list) and the row browser. Per user feedback, the editor is now reachable **only** from the row browser when a `KindDataset` is open. Schema-explorer `E` is a no-op on every kind. This guarantees the user sees the dataset's current rows (or its error) right before editing.
 8. **Editor reachable through SQL-error state.** The row browser's `handleNormalKey` returns early when `m.err != nil` (a SQL execution error), which originally swallowed `E`. Moved the `EditSQL` case above the err check so a broken `KindDataset` can still be fixed via the editor.
 9. **Popup `↓`/`↑` and typing-narrows.** First pass only supported `Tab`/`Shift+Tab` for popup navigation, and any keystroke closed the popup. Per user feedback, arrow keys now also cycle the popup, and typing runes / `Backspace` / `Space` recomputes the suggestion list against the new prefix (matching the in-place narrowing pattern used by the `/` filter mode in other views). The popup auto-closes only when the new prefix matches nothing. `←`/`→`/`Home`/`End` still close the popup, since they move the cursor out of the word being completed.
+10. **Accept preserves the table qualifier.** First pass deleted the entire popup prefix on Enter, so accepting a column from `SELECT u.em` produced `SELECT email` instead of `SELECT u.email`. That's wrong when the user explicitly disambiguated which side of a join to read from. Fix: when the stored `popupPrefix` contains a dot, only the bare part after the last dot is backspaced before the suggestion is inserted.
 
 ## Definition of Done
 

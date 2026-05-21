@@ -236,15 +236,23 @@ func (m SQLEditorModel) refreshPopup() SQLEditorModel {
 	return m
 }
 
-// acceptSuggestion replaces the current prefix with the selected suggestion text.
+// acceptSuggestion replaces the part of the current prefix that is being
+// completed with the selected suggestion text. When the prefix is
+// dot-qualified ("t.col"), only the text after the last dot is replaced —
+// the qualifier stays put, so the user keeps their explicit table reference
+// (e.g. "t.col" → "t.column_name", not "column_name").
 func (m SQLEditorModel) acceptSuggestion() SQLEditorModel {
 	if m.popupCursor < 0 || m.popupCursor >= len(m.popup) {
 		m.popup = nil
 		return m
 	}
 	suggestion := m.popup[m.popupCursor].Text
-	prefixRunes := utf8.RuneCountInString(m.popupPrefix)
-	for i := 0; i < prefixRunes; i++ {
+	replaceMe := m.popupPrefix
+	if idx := strings.LastIndex(replaceMe, "."); idx >= 0 {
+		replaceMe = replaceMe[idx+1:]
+	}
+	prefixRunes := utf8.RuneCountInString(replaceMe)
+	for range prefixRunes {
 		m.textarea, _ = m.textarea.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
 	m.textarea.InsertString(suggestion)

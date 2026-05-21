@@ -22,6 +22,9 @@ package views_test
 //         → TestAC_ED08_EInSchemaExplorerNeverOpens
 //   ED09: Down/Up keys navigate the popup; typing narrows the suggestion list.
 //         → TestAC_ED09_PopupArrowKeysAndNarrowing
+//   ED10: Accepting a column from a dot-qualified prefix ("t.col") keeps the
+//         qualifier intact — only the bare column part is replaced.
+//         → TestAC_ED10_AcceptKeepsTableQualifier
 
 import (
 	"strings"
@@ -238,6 +241,46 @@ func TestAC_ED08_EInSchemaExplorerNeverOpens(t *testing.T) {
 		if _, ok := msg.(views.OpenSQLEditorMsg); ok {
 			t.Errorf("schema explorer 'E' on Kind=%v must NOT emit OpenSQLEditorMsg", ds.Kind)
 		}
+	}
+}
+
+// ED10 — when the popup prefix is dot-qualified, accepting a column
+// suggestion must keep the qualifier intact. Regression for: "SELECT u.em"
+// → accept "email" → previously became "SELECT email", now stays
+// "SELECT u.email".
+func TestAC_ED10_AcceptKeepsTableQualifier(t *testing.T) {
+	const sql = "SELECT u.em FROM users u"
+	// Cursor at the end of "u.em" (position 11). The popup will offer columns
+	// of the users table whose name starts with "em" — "email" is the match.
+	ds := dataset.Dataset{Name: "q", Kind: dataset.KindDataset, SQL: sql}
+	tables := []schema.Table{
+		{
+			Name: "users",
+			Columns: []db.Column{
+				{Name: "id", Type: "integer"},
+				{Name: "email", Type: "varchar(255)"},
+			},
+		},
+	}
+	c := completions.New(tables, db.DialectPostgres)
+	m := views.NewSQLEditorModel(ds, c, "/tmp/datacow_unused.yaml").SetSize(120, 30)
+
+	// Move cursor from end-of-text back to just after "u.em" (position 11).
+	const wantCursorAt = 11
+	for i := len(sql); i > wantCursorAt; i-- {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if !m.IsPopupOpen() {
+		t.Fatal("expected popup to be open after Tab on 'u.em'")
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := m.SQL()
+	const want = "SELECT u.email FROM users u"
+	if got != want {
+		t.Errorf("accept on dot-qualified prefix lost the qualifier:\n  got:  %q\n  want: %q", got, want)
 	}
 }
 
