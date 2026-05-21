@@ -839,6 +839,13 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 		return m.popDrillStack()
 	}
 
+	// EditSQL must work even when the dataset is loading or has a query error
+	// — editing the SQL is the way to fix a broken KindDataset.
+	if key.Matches(msg, m.keys.EditSQL) && m.ds.Kind == dataset.KindDataset {
+		openDS := m.ds
+		return m, func() tea.Msg { return OpenSQLEditorMsg{Dataset: openDS} }
+	}
+
 	if m.loading || m.err != nil || m.result == nil {
 		return m, nil
 	}
@@ -860,12 +867,6 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 
 	case key.Matches(msg, m.keys.SortManager):
 		return m.openSortManager()
-
-	case key.Matches(msg, m.keys.EditSQL):
-		if m.ds.Kind == dataset.KindDataset {
-			openDS := m.ds
-			return m, func() tea.Msg { return OpenSQLEditorMsg{Dataset: openDS} }
-		}
 
 	case key.Matches(msg, m.keys.Export):
 		m.mode = modeExportMenu

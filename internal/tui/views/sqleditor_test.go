@@ -17,8 +17,11 @@ package views_test
 //         → TestAC_ED06_EscClosedPopupCancelsEditor
 //   ED07: EditSQL key wired in keys.Map and visible in helpoverlay's Dataset section
 //         → TestAC_ED07_EditSQLKeyWiredAndInHelp
-//   ED08: E on a KindTable schema-explorer row does not open the editor
-//         → TestAC_ED08_EOnKindTableIsNoop
+//   ED08: E in the schema explorer never opens the editor (any kind, including
+//         KindDataset) — the editor is row-browser-only.
+//         → TestAC_ED08_EInSchemaExplorerNeverOpens
+//   ED09: Down/Up keys navigate the popup; typing narrows the suggestion list.
+//         → TestAC_ED09_PopupArrowKeysAndNarrowing
 
 import (
 	"strings"
@@ -168,10 +171,9 @@ func TestAC_ED06_EscClosedPopupCancelsEditor(t *testing.T) {
 	}
 }
 
-// ED07 — EditSQL key binding is present in keys.Map, the schema explorer
-// (table list) emits OpenSQLEditorMsg on a KindDataset cursor row, the row
-// browser emits OpenSQLEditorMsg on a KindDataset dataset, and the help
-// overlay shows the binding in a Dataset section.
+// ED07 — EditSQL is bound to 'E' in keys.Map, the row browser emits
+// OpenSQLEditorMsg on a KindDataset dataset, and the help overlay shows the
+// binding in the Dataset section.
 func TestAC_ED07_EditSQLKeyWiredAndInHelp(t *testing.T) {
 	k := keys.Default()
 	bindingKeys := k.EditSQL.Keys()
@@ -186,19 +188,6 @@ func TestAC_ED07_EditSQLKeyWiredAndInHelp(t *testing.T) {
 	}
 	if !hasE {
 		t.Errorf("EditSQL must bind 'E', got %v", bindingKeys)
-	}
-
-	// Schema explorer (table list): emit OpenSQLEditorMsg on a KindDataset row.
-	tl := loadedTableListModel(t, nil, []dataset.Dataset{
-		{Name: "active_users", Kind: dataset.KindDataset, SQL: "SELECT 1"},
-	})
-	_, cmd := tl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd from table list 'E' on KindDataset")
-	}
-	msg := cmd()
-	if _, ok := msg.(views.OpenSQLEditorMsg); !ok {
-		t.Errorf("expected OpenSQLEditorMsg from schema explorer on KindDataset, got %T", msg)
 	}
 
 	// Row browser: 'E' on a KindDataset emits OpenSQLEditorMsg.
@@ -229,18 +218,69 @@ func TestAC_ED07_EditSQLKeyWiredAndInHelp(t *testing.T) {
 	}
 }
 
-// ED08 — 'E' while the schema-explorer cursor is on a KindTable row does NOT
-// emit OpenSQLEditorMsg (no editor opens).
-func TestAC_ED08_EOnKindTableIsNoop(t *testing.T) {
-	tl := loadedTableListModel(t, nil, []dataset.Dataset{
+// ED08 — the schema explorer is no longer an entry point. 'E' on any cursor
+// row (KindDataset, KindTable, KindView, KindPerspective) must NOT emit
+// OpenSQLEditorMsg. The editor is reachable only from the row browser.
+func TestAC_ED08_EInSchemaExplorerNeverOpens(t *testing.T) {
+	cases := []dataset.Dataset{
 		{Name: "users", Table: "users", Kind: dataset.KindTable},
-	})
-	_, cmd := tl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
-	if cmd == nil {
-		return // no command — correct behaviour
+		{Name: "v_users", Table: "v_users", Kind: dataset.KindView},
+		{Name: "saved_query", Kind: dataset.KindDataset, SQL: "SELECT 1"},
+		{Name: "My Lens", Table: "users", Kind: dataset.KindPerspective, ParentTable: "users"},
 	}
-	msg := cmd()
-	if _, ok := msg.(views.OpenSQLEditorMsg); ok {
-		t.Errorf("schema explorer 'e' on KindTable must NOT emit OpenSQLEditorMsg, got %T", msg)
+	for _, ds := range cases {
+		tl := loadedTableListModel(t, nil, []dataset.Dataset{ds})
+		_, cmd := tl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
+		if cmd == nil {
+			continue // correct: no command emitted
+		}
+		msg := cmd()
+		if _, ok := msg.(views.OpenSQLEditorMsg); ok {
+			t.Errorf("schema explorer 'E' on Kind=%v must NOT emit OpenSQLEditorMsg", ds.Kind)
+		}
+	}
+}
+
+// ED09 — with the popup open, Down/Up cycle the popup cursor and typing
+// (runes / Backspace) narrows the suggestion list against the new prefix.
+func TestAC_ED09_PopupArrowKeysAndNarrowing(t *testing.T) {
+	m := newEditorFixture("SELECT * FROM o")
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if !m.IsPopupOpen() {
+		t.Fatal("expected popup to be open after Tab")
+	}
+	v := m.View()
+	if !strings.Contains(v, "orders") {
+		t.Fatalf("expected 'orders' suggestion in popup, got:\n%s", v)
+	}
+
+	// Down should advance the popup cursor — the selected marker '> ' moves to
+	// the next entry. With only "orders" matching "o" via tables, but multiple
+	// keyword suggestions also start with O (e.g. ORDER BY, OR, OUTER), Down
+	// must be a no-crash navigation.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if !m.IsPopupOpen() {
+		t.Error("Down must not close the popup")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if !m.IsPopupOpen() {
+		t.Error("Up must not close the popup")
+	}
+
+	// Typing 'r' (prefix becomes "or") narrows the list. The popup stays open
+	// but with a smaller, refreshed list (orders still matches).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if !m.IsPopupOpen() {
+		t.Fatal("typing must keep the popup open while matches exist")
+	}
+	v2 := m.View()
+	if !strings.Contains(v2, "orders") {
+		t.Errorf("expected 'orders' still in popup after narrowing, got:\n%s", v2)
+	}
+
+	// Typing 'z' (prefix becomes "orz" — no matches) closes the popup.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	if m.IsPopupOpen() {
+		t.Error("popup must close when typing produces no matches")
 	}
 }

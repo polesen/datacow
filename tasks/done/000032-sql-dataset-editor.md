@@ -120,18 +120,24 @@ type SQLEditorModel struct {
 }
 ```
 
-**Rendering — editor (popup closed):**
+**Rendering — fullscreen, editor (popup closed):**
+
+The editor replaces the entire content area between the app header and the bottom status bar — the split layout (table list, row browser, SQL log strip) is hidden while the editor is open. The lipgloss box uses an explicit `Height(contentHeight-2)` so empty space below the editor's body is included in the box rather than leaving a visible gap.
+
+While the editor is open, the bottom status bar shows no key hints (`bindings = nil` for `screenSQLEditor`) — the editor's own footer line is the authoritative source of shortcuts.
 
 ```
-┌─ Edit SQL — api_logs_summary ───────────────────────────┐
-│                                                          │
-│  SELECT source, COUNT(*) AS total                       │
-│  FROM api_logs                                          │
-│  WHERE created_at > NOW() - INTERVAL '7 days'           │
-│  GROUP BY sou█                                          │
-│                                                          │
-│  Tab completions · Ctrl+S save · Esc cancel             │
-└──────────────────────────────────────────────────────────┘
+┌─ Edit SQL — api_logs_summary ────────────────────────────────────────────────┐
+│                                                                                │
+│  SELECT source, COUNT(*) AS total                                             │
+│  FROM api_logs                                                                │
+│  WHERE created_at > NOW() - INTERVAL '7 days'                                 │
+│  GROUP BY sou█                                                                │
+│                                                                                │
+│  …                                                                             │
+│                                                                                │
+│  Tab completions · Ctrl+S save · Esc cancel                                   │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Rendering — with popup open:**
@@ -154,14 +160,17 @@ A future task may replace this with a true floating overlay anchored at the curs
 | Key | Context | Action |
 |---|---|---|
 | `Tab` | popup closed | open popup; suggestions for current word |
-| `Tab` | popup open | move cursor down (wraps to top) |
-| `Shift+Tab` | popup open | move cursor up (wraps to bottom) |
+| `Tab` / `↓` | popup open | move cursor down (wraps to top) |
+| `Shift+Tab` / `↑` | popup open | move cursor up (wraps to bottom) |
 | `Enter` | popup open | insert selected suggestion at cursor; close popup |
 | `Esc` | popup open | close popup; editor stays open; SQL unchanged |
 | `Ctrl+S` | popup closed | confirm: validate, save, close |
 | `Esc` | popup closed | cancel: close editor; SQL reverts to `original` |
-| any printable key | popup open | forward to textarea; close popup |
+| printable rune, `Backspace`, `Space` | popup open | forward to textarea **and** recompute suggestions against the new prefix; popup closes only when the new prefix matches nothing |
+| any other key (`←`, `→`, `Home`, `End`, …) | popup open | close popup; forward key to textarea |
 | any printable key | popup closed | forward to textarea |
+
+Typing while the popup is open narrows the result set in place — the same UX pattern as `/` filter mode in the other views. The popup only auto-closes when no suggestion matches the new prefix.
 
 `Enter` with popup closed inserts a newline (textarea default).
 
@@ -184,12 +193,11 @@ A future task may replace this with a true floating overlay anchored at the curs
 
 Add `EditSQL key.Binding` (default: `E`, uppercase) to `keys.Map`. Lowercase `e` is already bound to `Export`; using `E` lets both shortcuts coexist on the same row.
 
-Two entry points, both gated on `KindDataset`:
+**One entry point: the row browser, when a `KindDataset` is open.**
 
-- **Schema explorer**: `E` when the cursor row is a `KindDataset` entry. Opens editor pre-populated with `dataset.SQL` from the focused dataset.
-- **Row browser**: `E` when `currentDataset.Kind == KindDataset`. Opens editor pre-populated with `currentDataset.SQL`.
-
-`E` on `KindTable`, `KindView`, or `KindPerspective` is a no-op (editor does not open). `e` (lowercase) continues to behave exactly as before — Export menu on the row browser, no-op in the schema explorer.
+- **Row browser**: `E` when `currentDataset.Kind == KindDataset` opens the editor pre-populated with `currentDataset.SQL`. This works even when the row browser is loading or has surfaced a SQL error from the dataset — editing the SQL is the way to fix a broken `KindDataset`, so the editor must remain reachable in that state.
+- **Schema explorer**: `E` is a **no-op** on every cursor row — `KindDataset`, `KindTable`, `KindView`, and `KindPerspective`. The editor is intentionally row-browser-only so the user always sees the current rows (or the error) right before editing.
+- `E` on `KindTable`, `KindView`, or `KindPerspective` in the row browser is also a no-op (editor does not open). `e` (lowercase) continues to behave exactly as before — Export menu on the row browser, no-op in the schema explorer.
 
 In `helpoverlay.go`: rename the existing "Row Browser" section to "Dataset" and add `EditSQL` to it alongside `DrillFwd` / `DrillReverse` (these are all dataset-context operations). The entry is shown unconditionally — `HelpOverlayView` does not currently carry per-context state, and adding it would touch every overlay caller. Conditional rendering is tracked by `tasks/drafts/context-sensitive-help.md`.
 
@@ -226,19 +234,20 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern. The acceptance te
 - ED04: With popup open, sending `Enter` inserts the first suggestion into the editor text; `View()` no longer shows the popup.
 - ED05: With popup open, sending `Esc` closes the popup but leaves the editor open; `View()` still contains `"Edit SQL"`.
 - ED06: With popup closed, sending `Esc` sets `cancelled = true` on the model.
-- ED07: `e` key is present in `keys.Map`, wired in both schema explorer and row browser `Update()`, and appears in `helpoverlay.go` in a Dataset-context section.
-- ED08: Sending `e` while the cursor is on a `KindTable` row in the schema explorer does not cause the editor to open (no `SQLEditorModel` returned from `Update()`).
+- ED07: `EditSQL` is bound to `"E"` in `keys.Map`; the row browser emits `OpenSQLEditorMsg` on a `KindDataset` dataset; the help overlay shows the binding in the Dataset section.
+- ED08: `E` in the schema explorer is a no-op on every kind (`KindDataset`, `KindTable`, `KindView`, `KindPerspective`) — no `OpenSQLEditorMsg` is emitted. The editor is reachable only from the row browser.
+- ED09: With the popup open, `↓` / `↑` cycle the popup cursor (in addition to `Tab` / `Shift+Tab`); typing a rune or `Backspace` forwards to the textarea **and** re-runs the completer against the new prefix; the popup closes automatically when no suggestion matches.
 
 ### AC — App integration tests (in `app_test.go` or `sqleditor_acceptance_test.go`)
 
-- AC01 (open from schema explorer): Load a config with at least one `KindDataset`. Navigate to it in the schema explorer; press `e`. Assert: `View()` contains `"Edit SQL"` and the dataset's SQL string.
-- AC02 (open from row browser): With a `KindDataset` open in the row browser, press `e`. Assert: same as AC01.
-- AC03 (completions in context): In the editor, with a schema containing table `orders`, position the textarea so the content ends with `"FROM ord"`, press `Tab`. Assert: `View()` contains `"orders"` in the popup area.
-- AC04 (insert completion): From AC03, press `Enter`. Assert: editor textarea content contains `"orders"` and the popup is no longer visible.
-- AC05 (save and reload): Edit the SQL, press `Ctrl+S`. Assert: overlay closes; status line contains `"Saved to"`; config file on disk reflects the new SQL when read back via `config.Load()`.
-- AC06 (row browser re-fetches after save): With a `KindDataset` open in the row browser, open the editor, change the SQL to a different valid query, confirm. Assert: row browser re-fetches; its `View()` reflects results from the new query (or a loading state).
-- AC07 (Esc reverts): Open the editor, modify the SQL, press `Esc` (popup closed). Assert: overlay closes; config file is unchanged; the dataset SQL in memory equals the original.
-- AC08 (Esc closes popup not editor): Open editor, press `Tab` to open popup, press `Esc`. Assert: popup is gone; `"Edit SQL"` is still visible; SQL text is unchanged.
+- AC01 (schema-explorer `E` is a no-op): Load a config with at least one `KindDataset`. Filter the table list to put the cursor on the dataset row, press `E`. Assert: `"Edit SQL"` does **not** appear — the editor must not be reachable from the schema explorer.
+- AC02 (open from row browser): With a `KindDataset` open in the row browser, press `E`. Assert: `View()` contains `"Edit SQL"` and the dataset's SQL string.
+- AC03 (completions in context): With a `KindDataset` whose SQL ends with a prefix of an existing table, open the editor and press `Tab`. Assert: `View()` contains the full table name in the popup area.
+- AC04 (insert completion): From AC03, press `Enter`, then `Ctrl+S`. Assert: the persisted SQL on disk contains the full table name (the suggestion was inserted before save).
+- AC05 (save and reload): Open the editor, edit the SQL, press `Ctrl+S`. Assert: overlay closes; status line contains `"Saved to"`; `config.Load(path)` returns the new SQL.
+- AC06 (row browser re-fetches after save): With a `KindDataset` open in the row browser, open the editor, change the SQL to a different valid query, confirm. Assert: row browser re-fetches; its `View()` shows columns from the new query.
+- AC07 (Esc reverts): Open the editor, modify the SQL, press `Esc` (popup closed). Assert: overlay closes; config file bytes on disk are unchanged; `config.Load(path)` returns the original SQL.
+- AC08 (Esc closes popup not editor): Open editor, press `Tab` to open popup, press `Esc`. Assert: popup is gone; pressing `Ctrl+S` afterwards still saves (proving the editor is still open) and the persisted SQL equals the original (proving Tab/Esc did not mutate it).
 
 ## What NOT to Change
 
@@ -254,11 +263,15 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern. The acceptance te
 
 Decisions taken during implementation that diverge from the original draft above (each was reconciled in this spec):
 
-1. **Key binding `E` (uppercase) instead of `e`.** Lowercase `e` was already bound to Export. Rather than break Export on `KindDataset` rows, the editor uses `Shift+E`. Both shortcuts now coexist on the same row browser; `e` still opens Export everywhere it did before, `E` opens the editor only when the row/dataset is `KindDataset`.
+1. **Key binding `E` (uppercase) instead of `e`.** Lowercase `e` was already bound to Export. Rather than break Export on `KindDataset` rows, the editor uses `Shift+E`. Both shortcuts now coexist on the same row browser.
 2. **Help-overlay entry is unconditional.** Spec originally said "shown only when focused context is `KindDataset`". `HelpOverlayView` carries no per-context state today; threading it through would touch every overlay caller. The entry now lives in a renamed "Dataset" section alongside `DrillFwd`/`DrillReverse`. Conditional rendering is tracked by the existing draft `tasks/drafts/context-sensitive-help.md`.
 3. **Popup is a block, not a floating overlay.** Spec originally described the popup as "float[ing] immediately below the cursor". The implementation renders it as a block between the textarea and hint footer; `SetSize` reserves 12 chrome rows so the box never overflows a 40-row terminal. Functionally identical for completion acceptance; visually slightly different.
 4. **`config.UpdateDatasetSQL` helper added.** Spec walked through the load → find → mutate → save loop inline in the editor's `confirm()`. That is business logic, which CLAUDE.md forbids in the TUI layer. Extracted into `config.UpdateDatasetSQL(path, name, newSQL)` so the editor stays purely presentational.
 5. **`SQLEditorModel` extra fields.** Added `popupPrefix` (records the text to delete-and-replace on Enter) and `configPath` (target file for save). Both are required by the implementation; the draft missed them.
+6. **Editor is fullscreen with no status-bar bindings.** First-pass implementation left the editor's lipgloss box at content-driven height, which produced a visible gap below the editor where the split-layout's SQL log strip used to live. Fixed by setting `Height(m.height-2)` on the box and adding a `screenSQLEditor` case to `renderStatusBar` so the irrelevant `Q ? q s e` bindings are suppressed — the editor's own footer is now the authoritative shortcut hint.
+7. **Schema-explorer entry point removed.** First-pass implementation wired `E` in both the schema explorer (table list) and the row browser. Per user feedback, the editor is now reachable **only** from the row browser when a `KindDataset` is open. Schema-explorer `E` is a no-op on every kind. This guarantees the user sees the dataset's current rows (or its error) right before editing.
+8. **Editor reachable through SQL-error state.** The row browser's `handleNormalKey` returns early when `m.err != nil` (a SQL execution error), which originally swallowed `E`. Moved the `EditSQL` case above the err check so a broken `KindDataset` can still be fixed via the editor.
+9. **Popup `↓`/`↑` and typing-narrows.** First pass only supported `Tab`/`Shift+Tab` for popup navigation, and any keystroke closed the popup. Per user feedback, arrow keys now also cycle the popup, and typing runes / `Backspace` / `Space` recomputes the suggestion list against the new prefix (matching the in-place narrowing pattern used by the `/` filter mode in other views). The popup auto-closes only when the new prefix matches nothing. `←`/`→`/`Home`/`End` still close the popup, since they move the cursor out of the word being completed.
 
 ## Definition of Done
 

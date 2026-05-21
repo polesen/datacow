@@ -3,15 +3,23 @@ package tui_test
 // App integration acceptance tests for the SQL Dataset Editor feature.
 // All tests require TEST_POSTGRES_DSN and skip when it is unset.
 //
-// Coverage map (AC section, from tasks/ready/sql-dataset-editor.md):
-//   AC01: open from schema explorer        → TestAC_AC01_OpenFromSchemaExplorer
-//   AC02: open from row browser            → TestAC_AC02_OpenFromRowBrowser
-//   AC03: completions in context           → TestAC_AC03_CompletionsInContext
-//   AC04: insert completion                → TestAC_AC04_InsertCompletion
-//   AC05: save and reload                   → TestAC_AC05_SaveAndReload
-//   AC06: row browser re-fetches after save → TestAC_AC06_RowBrowserRefetchesAfterSave
-//   AC07: Esc reverts                      → TestAC_AC07_EscReverts
-//   AC08: Esc closes popup, not editor      → TestAC_AC08_EscClosesPopupNotEditor
+// Coverage map (AC section, from tasks/done/000032-sql-dataset-editor.md):
+//   AC01: schema-explorer 'E' is a no-op (editor is row-browser-only)
+//         → TestAC_AC01_SchemaExplorerEIsNoop
+//   AC02: open from row browser
+//         → TestAC_AC02_OpenFromRowBrowser
+//   AC03: completions in context
+//         → TestAC_AC03_CompletionsInContext
+//   AC04: insert completion
+//         → TestAC_AC04_InsertCompletion
+//   AC05: save and reload
+//         → TestAC_AC05_SaveAndReload
+//   AC06: row browser re-fetches after save
+//         → TestAC_AC06_RowBrowserRefetchesAfterSave
+//   AC07: Esc reverts
+//         → TestAC_AC07_EscReverts
+//   AC08: Esc closes popup, not editor
+//         → TestAC_AC08_EscClosesPopupNotEditor
 
 import (
 	"context"
@@ -98,29 +106,32 @@ func waitForSchemaReady(t *testing.T, tm *teatest.TestModel) {
 	}, teatest.WithDuration(sqlEditorWait), teatest.WithCheckInterval(sqlEditorCheckInterval))
 }
 
-// focusDatasetInExplorer puts the schema-explorer cursor on the dataset by
-// filtering the table list to just that dataset name.
-func focusDatasetInExplorer(t *testing.T, tm *teatest.TestModel, datasetName string) {
+// openDatasetInRowBrowser navigates to the dataset by filtering the table
+// list, then opens it in the row browser. This is the only path that can
+// reach the SQL editor — the schema explorer no longer opens it directly.
+func openDatasetInRowBrowser(t *testing.T, tm *teatest.TestModel, datasetName string) {
 	t.Helper()
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), datasetName)
 	}, teatest.WithDuration(sqlEditorWait), teatest.WithCheckInterval(sqlEditorCheckInterval))
 
+	// Filter to the dataset row.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	for _, r := range datasetName {
 		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter}) // close filter input
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter}) // open dataset in row browser
 
-	// Confirm the dataset is the only visible row (filtered).
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), datasetName)
+		return strings.Contains(string(bts), "2 "+datasetName)
 	}, teatest.WithDuration(sqlEditorWait))
 }
 
-// AC01 — pressing 'E' in the schema explorer on a KindDataset cursor row opens
-// the editor pre-populated with the dataset's SQL.
-func TestAC_AC01_OpenFromSchemaExplorer(t *testing.T) {
+// AC01 — pressing 'E' in the schema explorer (table list focused) does NOT
+// open the editor on any kind, including KindDataset. The editor is reachable
+// only from the row browser.
+func TestAC_AC01_SchemaExplorerEIsNoop(t *testing.T) {
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	if dsn == "" {
 		t.Skip("TEST_POSTGRES_DSN not set")
@@ -136,13 +147,26 @@ func TestAC_AC01_OpenFromSchemaExplorer(t *testing.T) {
 
 	tm := startAppWithDataset(t, dsn, configPath)
 
-	focusDatasetInExplorer(t, tm, datasetName)
+	// Wait for the dataset row to appear, then filter to it without opening
+	// the row browser — cursor sits on the dataset in the schema explorer.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		return strings.Contains(string(bts), datasetName)
+	}, teatest.WithDuration(sqlEditorWait), teatest.WithCheckInterval(sqlEditorCheckInterval))
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range datasetName {
+		tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter}) // close filter
+
+	// Pressing E in the schema explorer must not open the editor.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
 
+	// Wait a beat for any (unwanted) editor frame to render.
+	tm.Send(tea.WindowSizeMsg{Width: 161, Height: 40})
+
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		s := string(bts)
-		return strings.Contains(s, "Edit SQL") && strings.Contains(s, "FROM "+tableName)
-	}, teatest.WithDuration(sqlEditorWait))
+		return !strings.Contains(string(bts), "Edit SQL")
+	}, teatest.WithDuration(3*time.Second))
 
 	_ = tm.Quit()
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -165,12 +189,7 @@ func TestAC_AC02_OpenFromRowBrowser(t *testing.T) {
 
 	tm := startAppWithDataset(t, dsn, configPath)
 
-	focusDatasetInExplorer(t, tm, datasetName)
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter}) // open in row browser
-
-	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), "2 "+datasetName)
-	}, teatest.WithDuration(sqlEditorWait))
+	openDatasetInRowBrowser(t, tm, datasetName)
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
@@ -201,9 +220,9 @@ func TestAC_AC03_CompletionsInContext(t *testing.T) {
 	tm := startAppWithDataset(t, dsn, configPath)
 
 	waitForSchemaReady(t, tm)
-	focusDatasetInExplorer(t, tm, datasetName)
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
+	openDatasetInRowBrowser(t, tm, datasetName)
 
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "Edit SQL")
 	}, teatest.WithDuration(sqlEditorWait))
@@ -217,8 +236,8 @@ func TestAC_AC03_CompletionsInContext(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
 
-// AC04 — Enter accepts the first suggestion; the table name appears in the
-// editor content (already in the popup test, but we also verify popup closes).
+// AC04 — Enter accepts the first suggestion; the editor body and the
+// persisted SQL on disk both contain the full table name.
 func TestAC_AC04_InsertCompletion(t *testing.T) {
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -237,9 +256,9 @@ func TestAC_AC04_InsertCompletion(t *testing.T) {
 	tm := startAppWithDataset(t, dsn, configPath)
 
 	waitForSchemaReady(t, tm)
-	focusDatasetInExplorer(t, tm, datasetName)
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
+	openDatasetInRowBrowser(t, tm, datasetName)
 
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "Edit SQL")
 	}, teatest.WithDuration(sqlEditorWait))
@@ -250,9 +269,6 @@ func TestAC_AC04_InsertCompletion(t *testing.T) {
 	}, teatest.WithDuration(sqlEditorWait))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-
-	// Save and re-load the config to inspect the persisted SQL — that's the
-	// most reliable way to confirm the suggestion got merged into the textarea.
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlS})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		s := string(bts)
@@ -295,7 +311,8 @@ func TestAC_AC05_SaveAndReload(t *testing.T) {
 
 	tm := startAppWithDataset(t, dsn, configPath)
 
-	focusDatasetInExplorer(t, tm, datasetName)
+	openDatasetInRowBrowser(t, tm, datasetName)
+
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "Edit SQL")
@@ -347,20 +364,14 @@ func TestAC_AC06_RowBrowserRefetchesAfterSave(t *testing.T) {
 
 	tm := startAppWithDataset(t, dsn, configPath)
 
-	focusDatasetInExplorer(t, tm, datasetName)
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter}) // open in row browser
-	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		s := string(bts)
-		return strings.Contains(s, "2 "+datasetName) && strings.Contains(s, "page 1")
-	}, teatest.WithDuration(sqlEditorWait))
+	openDatasetInRowBrowser(t, tm, datasetName)
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "Edit SQL")
 	}, teatest.WithDuration(sqlEditorWait))
 
-	// Replace the SQL with one that surfaces the 'label' column.
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		tm.Send(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
 	for _, r := range "SELECT id, label FROM " + tableName {
@@ -400,7 +411,8 @@ func TestAC_AC07_EscReverts(t *testing.T) {
 
 	tm := startAppWithDataset(t, dsn, configPath)
 
-	focusDatasetInExplorer(t, tm, datasetName)
+	openDatasetInRowBrowser(t, tm, datasetName)
+
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "Edit SQL")
@@ -458,7 +470,8 @@ func TestAC_AC08_EscClosesPopupNotEditor(t *testing.T) {
 	tm := startAppWithDataset(t, dsn, configPath)
 
 	waitForSchemaReady(t, tm)
-	focusDatasetInExplorer(t, tm, datasetName)
+	openDatasetInRowBrowser(t, tm, datasetName)
+
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
 		return strings.Contains(string(bts), "Edit SQL")

@@ -1049,6 +1049,8 @@ func (a *App) renderStatusBar() string {
 		bindings = nil // footer rendered inside the TableInfoModel.View()
 	case a.screen == screenGoto:
 		bindings = nil // hint is rendered inside the GotoModel.View()
+	case a.screen == screenSQLEditor:
+		bindings = nil // hints rendered inside the SQLEditorModel.View()
 	case a.focus == focusSQL:
 		bindings = []key.Binding{a.keys.Quit, a.keys.Up, a.keys.Down, a.keys.SwitchFocus}
 	default:

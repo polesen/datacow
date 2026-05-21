@@ -140,10 +140,10 @@ func (m SQLEditorModel) handleKey(msg tea.KeyMsg) (SQLEditorModel, tea.Cmd) {
 	// Popup-open key handling takes precedence.
 	if m.popup != nil {
 		switch msg.Type {
-		case tea.KeyTab:
+		case tea.KeyTab, tea.KeyDown:
 			m.popupCursor = (m.popupCursor + 1) % len(m.popup)
 			return m, nil
-		case tea.KeyShiftTab:
+		case tea.KeyShiftTab, tea.KeyUp:
 			m.popupCursor = (m.popupCursor - 1 + len(m.popup)) % len(m.popup)
 			return m, nil
 		case tea.KeyEnter:
@@ -153,8 +153,17 @@ func (m SQLEditorModel) handleKey(msg tea.KeyMsg) (SQLEditorModel, tea.Cmd) {
 			m.popupCursor = 0
 			m.popupPrefix = ""
 			return m, nil
+		case tea.KeyRunes, tea.KeyBackspace, tea.KeySpace:
+			// Typing narrows the result set: forward the key to the textarea,
+			// then recompute completions for the new prefix. If the new prefix
+			// matches nothing, close the popup so the user can keep editing
+			// without a stale list lingering.
+			var cmd tea.Cmd
+			m.textarea, cmd = m.textarea.Update(msg)
+			return m.refreshPopup(), cmd
 		default:
-			// Any other key closes the popup and forwards to the textarea.
+			// Cursor moves, deletes, line nav — close the popup and forward to
+			// the textarea. Re-opening with Tab gives a fresh popup.
 			m.popup = nil
 			m.popupCursor = 0
 			m.popupPrefix = ""
@@ -196,6 +205,34 @@ func (m SQLEditorModel) openPopup() SQLEditorModel {
 	m.popup = suggestions
 	m.popupCursor = 0
 	m.popupPrefix = prefix
+	return m
+}
+
+// refreshPopup recomputes the suggestion list against the current textarea
+// state. Called after typing/Backspace narrows the prefix. Closes the popup
+// when nothing matches.
+func (m SQLEditorModel) refreshPopup() SQLEditorModel {
+	if m.completer == nil {
+		m.popup = nil
+		m.popupCursor = 0
+		m.popupPrefix = ""
+		return m
+	}
+	sql := m.textarea.Value()
+	cursorPos := m.cursorByteOffset()
+	prefix := currentPrefix(sql, cursorPos)
+	suggestions := m.completer.Complete(sql, cursorPos)
+	if len(suggestions) == 0 {
+		m.popup = nil
+		m.popupCursor = 0
+		m.popupPrefix = ""
+		return m
+	}
+	m.popup = suggestions
+	m.popupPrefix = prefix
+	if m.popupCursor >= len(m.popup) {
+		m.popupCursor = 0
+	}
 	return m
 }
 
@@ -314,7 +351,8 @@ func (m SQLEditorModel) View() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#7DCFFF")).
 		Padding(0, 1).
-		Width(m.width - 2)
+		Width(m.width - 2).
+		Height(m.height - 2)
 	return box.Render(body)
 }
 
