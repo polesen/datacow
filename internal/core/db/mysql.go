@@ -207,6 +207,8 @@ func (c *mysqlClient) Placeholder(_ int) string {
 	return "?"
 }
 
+func (c *mysqlClient) Dialect() Dialect { return DialectMySQL }
+
 func (c *mysqlClient) Close() error {
 	return c.db.Close()
 }

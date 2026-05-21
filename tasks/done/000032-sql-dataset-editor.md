@@ -108,8 +108,10 @@ type SQLEditorModel struct {
     completer   *completions.Completer
     popup       []completions.Suggestion // nil = popup closed
     popupCursor int
+    popupPrefix string // text replaced when a suggestion is accepted
     original    string // SQL at open time, for Esc revert
     datasetName string // shown in the title bar
+    configPath  string // target config file for save
     cancelled   bool   // set on Esc with popup closed
     saved       bool   // set on Ctrl+S success
     err         string // inline error message
@@ -134,15 +136,18 @@ type SQLEditorModel struct {
 
 **Rendering — with popup open:**
 
-The popup floats immediately below the cursor, overlaid on the editor content. Up to 8 entries are shown; the selected entry is highlighted. The popup is left-aligned to the start of the current word.
+The popup renders as a block between the textarea and the hint footer. Up to 8 entries are shown; the selected entry is highlighted with a `>` marker. `SetSize` reserves 12 rows of chrome (1 title + 8 popup + 1 hint + 2 border) so opening the popup never pushes the title or first line of the textarea off-screen.
 
 ```
 │  GROUP BY sou█                                          │
-│             ┌────────────────┐                          │
-│             │> source        │                          │
-│             │  source_ip     │                          │
-│             └────────────────┘                          │
+│  …                                                       │
+│  > source        integer                                 │
+│    source_ip     varchar(45)                             │
+│                                                          │
+│  Tab completions · Ctrl+S save · Esc cancel             │
 ```
+
+A future task may replace this with a true floating overlay anchored at the cursor.
 
 **Keys:**
 
@@ -162,12 +167,10 @@ The popup floats immediately below the cursor, overlaid on the editor content. U
 
 **On confirm (`Ctrl+S`):**
 1. Reject empty SQL — render inline `"SQL cannot be empty"`, keep overlay open.
-2. Load current config via `config.Load(tui.Config.ConfigPath)`.
-3. Find the `DatasetConfig` entry whose `Name` matches `datasetName`.
-4. Replace its `SQL` field with the editor content.
-5. Call `config.Save(tui.Config.ConfigPath, cfg)`.
-6. On IO error: render the OS error inline, keep overlay open.
-7. On success: set `saved = true`; emit `DatasetSQLSavedMsg{DatasetName: ..., SQL: ...}`.
+2. Reject empty `ConfigPath` — render `"no config file path — cannot save"`, keep overlay open.
+3. Call `config.UpdateDatasetSQL(configPath, datasetName, editorSQL)` (helper added in `internal/core/config/config.go`; loads YAML, finds the SQL-bearing dataset by name, replaces its `SQL` field, atomically saves).
+4. On IO / not-found error: render the OS error inline, keep overlay open.
+5. On success: set `saved = true`; emit `DatasetSQLSavedMsg{DatasetName: ..., SQL: ..., Path: ...}`.
 
 **App handles `DatasetSQLSavedMsg`:**
 - Close the editor overlay.
@@ -179,16 +182,16 @@ The popup floats immediately below the cursor, overlaid on the editor content. U
 
 ### TUI — keybindings and entry points
 
-Add `EditSQL key.Binding` (default: `e`) to `keys.Map`.
+Add `EditSQL key.Binding` (default: `E`, uppercase) to `keys.Map`. Lowercase `e` is already bound to `Export`; using `E` lets both shortcuts coexist on the same row.
 
 Two entry points, both gated on `KindDataset`:
 
-- **Schema explorer**: `e` when the cursor row is a `KindDataset` entry. Opens editor pre-populated with `dataset.SQL` from the focused dataset.
-- **Row browser**: `e` when `currentDataset.Kind == KindDataset`. Opens editor pre-populated with `currentDataset.SQL`.
+- **Schema explorer**: `E` when the cursor row is a `KindDataset` entry. Opens editor pre-populated with `dataset.SQL` from the focused dataset.
+- **Row browser**: `E` when `currentDataset.Kind == KindDataset`. Opens editor pre-populated with `currentDataset.SQL`.
 
-`e` on `KindTable`, `KindView`, or `KindPerspective` is a no-op.
+`E` on `KindTable`, `KindView`, or `KindPerspective` is a no-op (editor does not open). `e` (lowercase) continues to behave exactly as before — Export menu on the row browser, no-op in the schema explorer.
 
-In `helpoverlay.go`: add `e edit SQL` to the Dataset section. The entry is shown conditionally — only when the focused context is a `KindDataset`.
+In `helpoverlay.go`: rename the existing "Row Browser" section to "Dataset" and add `EditSQL` to it alongside `DrillFwd` / `DrillReverse` (these are all dataset-context operations). The entry is shown unconditionally — `HelpOverlayView` does not currently carry per-context state, and adding it would touch every overlay caller. Conditional rendering is tracked by `tasks/drafts/context-sensitive-help.md`.
 
 **Building the `Completer`:** when opening the editor, the app constructs `completions.New(schemaCache.Tables(), client.Dialect())`. Both are already held in app state — no new DB queries at editor-open time.
 
@@ -246,6 +249,16 @@ Tests follow the `TestAC_<SECTION><NN>_<description>` pattern. The acceptance te
 - `PageSizeRegistry`, `ColumnRegistry`, filter state, sort state — unaffected.
 - The `COUNT(*)` subquery — unaffected.
 - Export — unaffected.
+
+## Implementation Notes
+
+Decisions taken during implementation that diverge from the original draft above (each was reconciled in this spec):
+
+1. **Key binding `E` (uppercase) instead of `e`.** Lowercase `e` was already bound to Export. Rather than break Export on `KindDataset` rows, the editor uses `Shift+E`. Both shortcuts now coexist on the same row browser; `e` still opens Export everywhere it did before, `E` opens the editor only when the row/dataset is `KindDataset`.
+2. **Help-overlay entry is unconditional.** Spec originally said "shown only when focused context is `KindDataset`". `HelpOverlayView` carries no per-context state today; threading it through would touch every overlay caller. The entry now lives in a renamed "Dataset" section alongside `DrillFwd`/`DrillReverse`. Conditional rendering is tracked by the existing draft `tasks/drafts/context-sensitive-help.md`.
+3. **Popup is a block, not a floating overlay.** Spec originally described the popup as "float[ing] immediately below the cursor". The implementation renders it as a block between the textarea and hint footer; `SetSize` reserves 12 chrome rows so the box never overflows a 40-row terminal. Functionally identical for completion acceptance; visually slightly different.
+4. **`config.UpdateDatasetSQL` helper added.** Spec walked through the load → find → mutate → save loop inline in the editor's `confirm()`. That is business logic, which CLAUDE.md forbids in the TUI layer. Extracted into `config.UpdateDatasetSQL(path, name, newSQL)` so the editor stays purely presentational.
+5. **`SQLEditorModel` extra fields.** Added `popupPrefix` (records the text to delete-and-replace on Enter) and `configPath` (target file for save). Both are required by the implementation; the draft missed them.
 
 ## Definition of Done
 

@@ -338,6 +338,12 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 				m.tree[m.cursor].expanded = false
 				m = m.ensureCursorVisible()
 			}
+
+		case key.Matches(msg, m.keys.EditSQL):
+			if ds := m.SelectedDataset(); ds != nil && ds.Kind == dataset.KindDataset {
+				openDS := *ds
+				return m, func() tea.Msg { return OpenSQLEditorMsg{Dataset: openDS} }
+			}
 		}
 		return m, nil
 	}

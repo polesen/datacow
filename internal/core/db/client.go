@@ -5,6 +5,18 @@ import (
 	"time"
 )
 
+// Dialect identifies the SQL dialect used by a Client. It drives per-vendor
+// behaviour in higher-level code (keyword completions, identifier quoting, …).
+type Dialect string
+
+const (
+	DialectPostgres Dialect = "postgres"
+	DialectMySQL    Dialect = "mysql"
+	DialectSQLite   Dialect = "sqlite"
+	DialectMSSQL    Dialect = "mssql"
+	DialectOracle   Dialect = "oracle"
+)
+
 // Client is the interface all database drivers must implement.
 // Each driver (postgres, mysql, sqlite, ...) lives in its own file in this package.
 type Client interface {
@@ -29,6 +41,9 @@ type Client interface {
 	// Placeholder returns the SQL parameter placeholder for argument position n (1-based).
 	// PostgreSQL uses $1, $2, … — MySQL uses ? for every position.
 	Placeholder(n int) string
+
+	// Dialect reports the SQL dialect of this client.
+	Dialect() Dialect
 
 	// Close releases the connection.
 	Close() error

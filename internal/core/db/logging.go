@@ -62,6 +62,10 @@ func (c *LoggingClient) Placeholder(n int) string {
 	return c.inner.Placeholder(n)
 }
 
+func (c *LoggingClient) Dialect() Dialect {
+	return c.inner.Dialect()
+}
+
 func (c *LoggingClient) Close() error {
 	return c.inner.Close()
 }

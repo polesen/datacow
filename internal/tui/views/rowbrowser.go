@@ -233,6 +233,26 @@ func (m RowBrowserModel) UpdateConfigPath(path string) RowBrowserModel {
 	return m
 }
 
+// ReloadWithSQL replaces the current dataset's SQL (for KindDataset) and
+// returns a command that re-fetches the first page. The App calls this
+// after the SQL editor saves new SQL for the dataset shown in this browser.
+func (m RowBrowserModel) ReloadWithSQL(newSQL string) (RowBrowserModel, tea.Cmd) {
+	m.ds.SQL = newSQL
+	m.drillSeq++
+	m.drillStack = nil
+	m.result = nil
+	m.knownTotalPages = nil
+	m.knownTotalRows = nil
+	m.knownTotalExact = false
+	m = m.clearLocalSearch()
+	m.loading = true
+	m.err = nil
+	if m.executor == nil {
+		return m, nil
+	}
+	return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(1))
+}
+
 func (m RowBrowserModel) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, m.loadPageCmd(1), m.loadFKsCmd(), m.loadPKColsCmd())
 }
@@ -840,6 +860,12 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 
 	case key.Matches(msg, m.keys.SortManager):
 		return m.openSortManager()
+
+	case key.Matches(msg, m.keys.EditSQL):
+		if m.ds.Kind == dataset.KindDataset {
+			openDS := m.ds
+			return m, func() tea.Msg { return OpenSQLEditorMsg{Dataset: openDS} }
+		}
 
 	case key.Matches(msg, m.keys.Export):
 		m.mode = modeExportMenu

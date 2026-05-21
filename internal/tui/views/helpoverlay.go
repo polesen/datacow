@@ -73,9 +73,10 @@ func (v *HelpOverlayView) View() string {
 			},
 		},
 		{
-			title: "Row Browser",
+			title: "Dataset",
 			bindings: []key.Binding{
 				v.keys.DrillFwd, v.keys.DrillReverse,
+				v.keys.EditSQL,
 			},
 		},
 		{

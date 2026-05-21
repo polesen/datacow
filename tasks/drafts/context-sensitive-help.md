@@ -4,6 +4,8 @@ The help overlay currently hardcodes its four binding groups directly in `helpov
 
 The fix: each view declares its own help groups via an interface. The overlay aggregates whatever the active context provides.
 
+A concrete example: the SQL Dataset Editor (task `sql-dataset-editor.md`) added `EditSQL = E` for opening the editor on `KindDataset` rows only. The original spec wanted that binding to appear in the help overlay *only* when the focused row was a `KindDataset`, but the existing helpoverlay has no per-context state. The shipped implementation falls back to showing it unconditionally inside a "Dataset" section. Once this task is done, the EditSQL binding can be moved into a `KindDataset`-only help group emitted by `TableListModel.HelpGroups()` / `RowBrowserModel.HelpGroups()`.
+
 ## Design
 
 Define a `HelpProvider` interface in `internal/tui/views`:
