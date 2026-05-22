@@ -469,3 +469,45 @@ func TestAC_KH02_TableListHelpIncludesFilterBinding(t *testing.T) {
 // filter is NOT open — is implied by all other app-level tests that rely on
 // those keys functioning correctly (TestApp_HelpOverlayView_OpensAndCloses,
 // TestApp_QueryLog_LKeyFromPane1, etc.).
+
+// --- Acceptance coverage for tasks/ready/goto-first-last.md ---
+//
+// The 10 criteria in that task are covered by named tests rather than
+// TestAC_* functions; the mapping is documented here.
+//
+// AC01: g moves selection to topmost visible dataset in tables pane.
+//   → TestTableListModel_GotoFirst_g (tablelist_test.go)
+//
+// AC02: G moves selection to bottommost visible dataset in tables pane.
+//   → TestTableListModel_GotoLast_G (tablelist_test.go)
+//
+// AC03: g/G respect an active filter (jump to first/last *visible* match).
+//   → TestTableListModel_GotoFirstLast_RespectsActiveFilter (tablelist_test.go)
+//
+// AC04: While the filter input is open, plain g/G are inserted as characters;
+//       only Home/End jump to first/last visible match.
+//   → TestTableListModel_GotoFirstLast_HomeEndInsideFilterInput (tablelist_test.go)
+//   Also covered indirectly by TestTableListModel_GotoFirstLast_NoopOnEmptyList
+//   and TestTableListModel_GotoFirstLast_NoopOnZeroFilterMatches.
+//
+// AC05: In the row browser, g always snaps the cursor to row 0 on page 1.
+//   → TestRowBrowserModel_FirstPage_g_OnPage1_SnapsCursorToZero (rowbrowser_test.go)
+//
+// AC06: In the row browser, G places the cursor on the *last* row of the last
+//       page (not row 0), with the viewport scrolled to keep that row visible.
+//   → TestRowBrowserModel_LastPage_G_LandsOnLastRow (rowbrowser_test.go)
+//
+// AC07: G short-circuits when already on the known-last page — no new query.
+//   → TestRowBrowserModel_LastPage_G_ShortCircuitOnLastPage (rowbrowser_test.go)
+//
+// AC08: Status-bar help under g/G reads "first row" / "last row".
+//   → TestHelpOverlayView_FirstLastPageAndPageSizeVisible (helpoverlay_test.go)
+//   → TestApp_TableList_GotoFirstLast (app_test.go) — verifies the strings
+//     appear in the rendered tables-pane status bar end-to-end.
+//
+// AC09: The tables-pane status bar shows g/home and G/end as available
+//       shortcuts (i.e. TableListHelp includes FirstPage / LastPage).
+//   → TestApp_TableList_GotoFirstLast (app_test.go) — see AC08 above.
+//
+// AC10: make preflight and /done pass.
+//   → Verified out-of-band by the /done skill; not a unit-testable criterion.

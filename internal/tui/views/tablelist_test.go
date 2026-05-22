@@ -898,3 +898,133 @@ func TestTableListFilter_YAMLDatasetNameOnly(t *testing.T) {
 		t.Errorf("users should be hidden, got:\n%s", v)
 	}
 }
+
+// --- g/G goto first/last tests ---
+
+func TestTableListModel_GotoFirst_g(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "apple", Table: "apple", Kind: dataset.KindTable},
+		{Name: "banana", Table: "banana", Kind: dataset.KindTable},
+		{Name: "cherry", Table: "cherry", Kind: dataset.KindTable},
+	})
+	// Move down to the middle row.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.Cursor() != 1 {
+		t.Fatalf("pre-condition: cursor should be at 1, got %d", m.Cursor())
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if m.Cursor() != 0 {
+		t.Errorf("after g, cursor should be at first (0), got %d", m.Cursor())
+	}
+}
+
+func TestTableListModel_GotoLast_G(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "apple", Table: "apple", Kind: dataset.KindTable},
+		{Name: "banana", Table: "banana", Kind: dataset.KindTable},
+		{Name: "cherry", Table: "cherry", Kind: dataset.KindTable},
+	})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if m.Cursor() != 2 {
+		t.Errorf("after G, cursor should be at last (2), got %d", m.Cursor())
+	}
+}
+
+func TestTableListModel_GotoFirstLast_RespectsActiveFilter(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "apple", Table: "apple", Kind: dataset.KindTable},
+		{Name: "cherry", Table: "cherry", Kind: dataset.KindTable},
+		{Name: "apricot", Table: "apricot", Kind: dataset.KindTable},
+		{Name: "banana", Table: "banana", Kind: dataset.KindTable},
+	})
+	// Apply a held filter that matches apple (0) and apricot (2).
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "ap")
+	m, _ = pressEnter(m)
+	if m.FilterInputActive() {
+		t.Fatal("filter input should be closed after Enter")
+	}
+
+	// G should jump to apricot (2), not banana (3).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if m.Cursor() != 2 {
+		t.Errorf("G with filter should land on last visible match (apricot=2), got %d", m.Cursor())
+	}
+
+	// g should jump to apple (0).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if m.Cursor() != 0 {
+		t.Errorf("g with filter should land on first visible match (apple=0), got %d", m.Cursor())
+	}
+}
+
+func TestTableListModel_GotoFirstLast_NoopOnEmptyList(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{})
+	// With no datasets, the normal-mode block early-returns before g/G;
+	// nothing should panic and the cursor stays at 0.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if m.Cursor() != 0 {
+		t.Errorf("cursor should stay at 0 with empty list, got %d", m.Cursor())
+	}
+}
+
+func TestTableListModel_GotoFirstLast_NoopOnZeroFilterMatches(t *testing.T) {
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "apple", Table: "apple", Kind: dataset.KindTable},
+		{Name: "banana", Table: "banana", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+	m, _ = typeText(m, "zzzzz")
+	m, _ = pressEnter(m)
+	// With zero matches the cursor may have been snapped past the end; g/G
+	// must not panic and must leave it where it is.
+	before := m.Cursor()
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if m.Cursor() != before {
+		t.Errorf("g/G with zero matches should be no-ops, before=%d after=%d", before, m.Cursor())
+	}
+}
+
+func TestTableListModel_GotoFirstLast_HomeEndInsideFilterInput(t *testing.T) {
+	// While the filter input is open, Home/End must jump to first/last visible
+	// match — but plain 'g' / 'G' must be inserted into the input as characters.
+	m := loadedTableListModel(t, nil, []dataset.Dataset{
+		{Name: "alpha", Table: "alpha", Kind: dataset.KindTable},
+		{Name: "garlic", Table: "garlic", Kind: dataset.KindTable},
+		{Name: "ginger", Table: "ginger", Kind: dataset.KindTable},
+	})
+	m, _ = pressSlash(m)
+
+	// 'g' while input open narrows to garlic + ginger and types the letter.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if !m.FilterInputActive() {
+		t.Fatal("filter input should remain open after 'g'")
+	}
+	v := m.View()
+	if !strings.Contains(v, "garlic") || !strings.Contains(v, "ginger") {
+		t.Errorf("filter should match garlic + ginger after typing g, got:\n%s", v)
+	}
+	if strings.Contains(v, "alpha") {
+		t.Errorf("alpha should be hidden after filter 'g', got:\n%s", v)
+	}
+	if m.Cursor() != 1 {
+		t.Errorf("cursor should snap to first match (garlic=1) after 'g', got %d", m.Cursor())
+	}
+
+	// End while input open jumps to the last visible match (ginger=2).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if m.Cursor() != 2 {
+		t.Errorf("End while input open should land on ginger (2), got %d", m.Cursor())
+	}
+	if !m.FilterInputActive() {
+		t.Error("filter input should remain open after End")
+	}
+
+	// Home while input open jumps back to the first visible match.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	if m.Cursor() != 1 {
+		t.Errorf("Home while input open should land on garlic (1), got %d", m.Cursor())
+	}
+}
