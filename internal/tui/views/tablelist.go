@@ -272,6 +272,20 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 					}
 				}
 				return m, nil
+			case msg.Type == tea.KeyHome:
+				visible := m.visibleDatasetIndices()
+				if len(visible) > 0 {
+					m.cursor = visible[0]
+					m = m.ensureCursorVisible()
+				}
+				return m, nil
+			case msg.Type == tea.KeyEnd:
+				visible := m.visibleDatasetIndices()
+				if len(visible) > 0 {
+					m.cursor = visible[len(visible)-1]
+					m = m.ensureCursorVisible()
+				}
+				return m, nil
 			default:
 				var inputCmd tea.Cmd
 				m.filterInput, inputCmd = m.filterInput.Update(msg)
@@ -326,6 +340,20 @@ func (m TableListModel) Update(msg tea.Msg) (TableListModel, tea.Cmd) {
 					m = m.ensureCursorVisible()
 					break
 				}
+			}
+
+		case key.Matches(msg, m.keys.FirstPage):
+			visible := m.visibleDatasetIndices()
+			if len(visible) > 0 {
+				m.cursor = visible[0]
+				m = m.ensureCursorVisible()
+			}
+
+		case key.Matches(msg, m.keys.LastPage):
+			visible := m.visibleDatasetIndices()
+			if len(visible) > 0 {
+				m.cursor = visible[len(visible)-1]
+				m = m.ensureCursorVisible()
 			}
 
 		case key.Matches(msg, m.keys.Right):

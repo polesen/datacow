@@ -180,6 +180,11 @@ type RowBrowserModel struct {
 	// pendingRowCursor is set by applyPageSizeInput so that when the next page
 	// arrives the cursor lands on the row that was selected before the resize.
 	pendingRowCursor *int
+
+	// pendingLastRow is set by the LastPage (G) flow so that when the last page
+	// arrives the cursor lands on its last row with the viewport scrolled to keep
+	// it visible.
+	pendingLastRow bool
 }
 
 // NewRowBrowserModel creates a RowBrowserModel in the initial loading state.
@@ -371,6 +376,13 @@ func (m RowBrowserModel) applyLoadedResult(r *dataset.QueryResult) RowBrowserMod
 		m.rowCursor = target
 		if vis := m.visibleRowCount(); vis > 0 {
 			m.rowOffset = max(0, m.rowCursor-vis/2)
+		}
+	}
+	if m.pendingLastRow {
+		m.pendingLastRow = false
+		m.rowCursor = max(0, len(r.Rows)-1)
+		if vis := m.visibleRowCount(); vis > 0 {
+			m.rowOffset = max(0, m.rowCursor-vis+1)
 		}
 	}
 	m.colWidths = computeColWidths(r.Columns, r.Rows)
@@ -644,6 +656,7 @@ func (m RowBrowserModel) Update(msg tea.Msg) (RowBrowserModel, tea.Cmd) {
 		if m.knownTotalPages != nil {
 			lastPage := *m.knownTotalPages
 			m.loading = true
+			m.pendingLastRow = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPageCmd(lastPage))
 		}
 		return m, nil
@@ -886,6 +899,8 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 		}
 
 	case key.Matches(msg, m.keys.FirstPage):
+		m.rowCursor = 0
+		m.rowOffset = 0
 		if m.result.Page != 1 {
 			m = m.clearLocalSearch()
 			m.loading = true
@@ -893,6 +908,13 @@ func (m RowBrowserModel) handleNormalKey(msg tea.KeyMsg) (RowBrowserModel, tea.C
 		}
 
 	case key.Matches(msg, m.keys.LastPage):
+		if m.knownTotalExact && m.knownTotalPages != nil && *m.knownTotalPages == m.result.Page {
+			m.rowCursor = max(0, len(m.result.Rows)-1)
+			if vis := m.visibleRowCount(); vis > 0 {
+				m.rowOffset = max(0, m.rowCursor-vis+1)
+			}
+			return m, nil
+		}
 		m.statusMsg = "Finding last page..."
 		return m, m.loadCountCmd()
 

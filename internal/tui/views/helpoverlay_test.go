@@ -71,7 +71,7 @@ func TestHelpOverlayView_FirstLastPageAndPageSizeVisible(t *testing.T) {
 	v := views.NewHelpOverlayView(keys.Default())
 	v.SetSize(120, 40)
 	out := v.View()
-	for _, want := range []string{"g/home", "first page", "G/end", "last page", "page size"} {
+	for _, want := range []string{"g/home", "first row", "G/end", "last row", "page size"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help overlay missing %q", out)
 		}

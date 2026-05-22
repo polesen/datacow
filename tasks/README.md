@@ -12,8 +12,6 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 ./tasks/run-task.sh ready/<task>.md
 ```
 
-- [g/G Goto First/Last — Tables Pane and Row Browser](ready/goto-first-last.md)
-
 ## Done
 
 - [000001 Project Scaffold](done/000001-project-scaffold.md)
@@ -48,6 +46,7 @@ Tasks in `ready/` are scoped and ready to run. Pick any of them:
 - [000030 Save Table View as Perspective](done/000030-save-table-perspective.md)
 - [000031 Multi-Column Sort](done/000031-multi-column-sort.md)
 - [000032 SQL Dataset Editor with Completions](done/000032-sql-dataset-editor.md)
+- [000033 g/G Goto First/Last — Tables Pane and Row Browser](done/000033-goto-first-last.md)
 
 ## Future Work
 

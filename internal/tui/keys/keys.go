@@ -140,11 +140,11 @@ func Default() Map {
 		),
 		FirstPage: key.NewBinding(
 			key.WithKeys("g", "home"),
-			key.WithHelp("g/home", "first page"),
+			key.WithHelp("g/home", "first row"),
 		),
 		LastPage: key.NewBinding(
 			key.WithKeys("G", "end"),
-			key.WithHelp("G/end", "last page"),
+			key.WithHelp("G/end", "last row"),
 		),
 		PageSize: key.NewBinding(
 			key.WithKeys("N"),
@@ -200,7 +200,7 @@ func (m Map) ShortHelp() []key.Binding {
 
 // TableListHelp returns bindings shown in the status bar when the table list is focused.
 func (m Map) TableListHelp() []key.Binding {
-	return []key.Binding{m.Quit, m.Up, m.Down, m.Enter, m.TableListFilter, m.TableInfo, m.SwitchFocus}
+	return []key.Binding{m.Quit, m.Up, m.Down, m.FirstPage, m.LastPage, m.Enter, m.TableListFilter, m.TableInfo, m.SwitchFocus}
 }
 
 // FullHelp returns all bindings grouped for a full help overlay.

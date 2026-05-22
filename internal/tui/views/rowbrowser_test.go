@@ -1413,3 +1413,133 @@ func TestAC_PL03_SingleSortPillNoSeparator(t *testing.T) {
 		t.Errorf("expected no separator '·' for single sort, got:\n%s", v)
 	}
 }
+
+// --- g/G goto first/last row tests ---
+
+// g on page 1 snaps the row cursor from a mid-page position back to row 0.
+func TestRowBrowserModel_FirstPage_g_OnPage1_SnapsCursorToZero(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	rows := make([]map[string]any, 0, 10)
+	for i := 0; i < 10; i++ {
+		rows = append(rows, map[string]any{"id": int64(i)})
+	}
+	result := makeResult(1, 1, 10, []db.Column{{Name: "id"}}, rows)
+	m, _ = m.Update(views.RowsLoadedMsg(result))
+
+	// Walk down a few rows.
+	for i := 0; i < 5; i++ {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if m.RowCursor() != 5 {
+		t.Fatalf("pre-condition: rowCursor should be 5, got %d", m.RowCursor())
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if m.IsLoading() {
+		t.Errorf("g on page 1 should not trigger a page load")
+	}
+	if m.RowCursor() != 0 {
+		t.Errorf("after g on page 1, rowCursor should snap to 0, got %d", m.RowCursor())
+	}
+	if m.RowOffset() != 0 {
+		t.Errorf("after g on page 1, rowOffset should be 0, got %d", m.RowOffset())
+	}
+}
+
+// G when already on the last known page short-circuits to the last row of the
+// current page without issuing a new query.
+func TestRowBrowserModel_LastPage_G_ShortCircuitOnLastPage(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	// Seed the model with an exact total of 1 page so the short-circuit applies.
+	tp := 1
+	tr := int64(5)
+	countResult := &dataset.QueryResult{
+		Page:       1,
+		PageSize:   50,
+		TotalRows:  &tr,
+		TotalPages: &tp,
+	}
+	m, _ = m.Update(views.CountLoadedMsgForTest(countResult))
+	pageResult := makeResult(1, 1, 5,
+		[]db.Column{{Name: "id"}},
+		[]map[string]any{
+			{"id": int64(1)},
+			{"id": int64(2)},
+			{"id": int64(3)},
+			{"id": int64(4)},
+			{"id": int64(5)},
+		},
+	)
+	m, _ = m.Update(views.RowsLoadedMsg(pageResult))
+	// The count flow placed the cursor on the last row. Walk it back to row 0
+	// so we can verify the short-circuit moves it.
+	for m.RowCursor() > 0 {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	}
+	if m.RowCursor() != 0 {
+		t.Fatalf("pre-condition: rowCursor should be 0, got %d", m.RowCursor())
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+
+	if m.IsLoading() {
+		t.Errorf("G on the known-last page should not trigger a load")
+	}
+	sl := m.StatusLine()
+	if strings.Contains(sl, "Finding last page") {
+		t.Errorf("G on known-last page should NOT show 'Finding last page', got: %q", sl)
+	}
+	if m.RowCursor() != 4 {
+		t.Errorf("after G short-circuit, rowCursor should be last row (4), got %d", m.RowCursor())
+	}
+}
+
+// G from an earlier page issues a COUNT then loads the last page, and the
+// cursor lands on the last row of the loaded page (not row 0).
+func TestRowBrowserModel_LastPage_G_LandsOnLastRow(t *testing.T) {
+	ds := dataset.Dataset{Name: "users", Table: "users"}
+	m := newModel(ds)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	// Initial page-1 load.
+	page1 := makeResult(1, 3, 0, []db.Column{{Name: "id"}},
+		[]map[string]any{{"id": int64(1)}, {"id": int64(2)}})
+	m, _ = m.Update(views.RowsLoadedMsg(page1))
+
+	// G triggers COUNT (no short-circuit because totals aren't exact yet).
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+
+	// Simulate the COUNT response — totalPages 3.
+	tp := 3
+	tr := int64(7)
+	countResult := &dataset.QueryResult{
+		Page:       1,
+		PageSize:   50,
+		TotalRows:  &tr,
+		TotalPages: &tp,
+	}
+	m, _ = m.Update(views.CountLoadedMsgForTest(countResult))
+
+	// Now the model is loading page 3. Simulate the page arriving with 3 rows.
+	page3 := makeResult(3, 3, 7, []db.Column{{Name: "id"}},
+		[]map[string]any{{"id": int64(5)}, {"id": int64(6)}, {"id": int64(7)}})
+	m, _ = m.Update(views.RowsLoadedMsg(page3))
+
+	if m.IsLoading() {
+		t.Errorf("model should no longer be loading after last page arrives")
+	}
+	if m.RowCursor() != 2 {
+		t.Errorf("after G + page load, rowCursor should be last row (2), got %d", m.RowCursor())
+	}
+	// Viewport should keep the last row visible.
+	off := m.RowOffset()
+	vis := m.VisibleRowCount()
+	if vis > 0 && (m.RowCursor() < off || m.RowCursor() >= off+vis) {
+		t.Errorf("last row not visible: cursor=%d offset=%d visible=%d", m.RowCursor(), off, vis)
+	}
+}

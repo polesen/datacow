@@ -201,6 +201,56 @@ func TestApp_TableList_WithRealDB(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
 
+// TestApp_TableList_GotoFirstLast is a smoke test that confirms the tables pane
+// has the g/G bindings wired all the way through to the status bar help. It also
+// exercises the key path end-to-end by sending G then g; the test does not
+// assert on intermediate frames because Bubble Tea's diff renderer may suppress
+// status-bar bytes when text doesn't change, but it verifies the model survives
+// the key sequence.
+func TestApp_TableList_GotoFirstLast(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	client, err := db.Connect(dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	ctx := context.Background()
+	defer func() {
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS goto_first")
+		_, _ = client.Query(ctx, "DROP TABLE IF EXISTS goto_last")
+		_ = client.Close()
+	}()
+	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS goto_first (id SERIAL PRIMARY KEY)"); err != nil {
+		t.Fatalf("create goto_first: %v", err)
+	}
+	if _, err := client.Query(ctx, "CREATE TABLE IF NOT EXISTS goto_last (id SERIAL PRIMARY KEY)"); err != nil {
+		t.Fatalf("create goto_last: %v", err)
+	}
+
+	app := tui.New(tui.Config{ConnectionString: dsn, Version: "test"}, client, nil)
+	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(160, 40))
+
+	// Wait for the fixture tables to render and the status-bar help to show
+	// "first row" / "last row" — proves the bindings are wired through.
+	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
+		s := string(bts)
+		return strings.Contains(s, "goto_first") &&
+			strings.Contains(s, "goto_last") &&
+			strings.Contains(s, "first row") &&
+			strings.Contains(s, "last row")
+	}, teatest.WithDuration(10*time.Second), teatest.WithCheckInterval(200*time.Millisecond))
+
+	// Smoke: press G then g — the app must process both keys without crashing.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+
+	_ = tm.Quit()
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
 func TestApp_Maximize_ToggleOnPane1(t *testing.T) {
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	if dsn == "" {
