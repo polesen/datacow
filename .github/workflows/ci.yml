@@ -85,6 +85,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # ubuntu-latest does not put Homebrew on PATH for job steps; set it up
+      # explicitly so the brew style/install/test steps below can run on Linux.
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
       # Lint the workflows this release pipeline owns. (The claude.* workflows
       # have separate, pre-existing findings tracked outside this PR.)
       - name: Lint workflows (actionlint)
@@ -112,8 +117,9 @@ jobs:
 
       - name: Set up local tap
         run: |
-          brew tap-new --no-git local/test
-          cp datacow.rb "$(brew --repository local/test)/Formula/datacow.rb"
+          tap="$(brew --repository local/test)"
+          mkdir -p "$tap/Formula"
+          cp datacow.rb "$tap/Formula/datacow.rb"
 
       - name: Lint formula style
         run: brew style local/test/datacow

@@ -40,8 +40,11 @@ jobs:
             echo "sha256=$sha"
           } >>"$GITHUB_OUTPUT"
 
+      # actions/attest generates a SLSA build-provenance attestation by default
+      # from just subject-path. (attest-build-provenance is now a thin wrapper
+      # over this; actions/attest is the recommended action for new pipelines.)
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest@v4
         with:
           subject-path: ${{ steps.tarball.outputs.tarball }}
 
