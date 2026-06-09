@@ -79,6 +79,18 @@ datacow --config datacow.yaml
 
 ## Installation
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew install polesen/tap/datacow
+```
+
+Upgrade later with `brew upgrade datacow`.
+
+> Distributed through Homebrew, which installs without triggering macOS
+> Gatekeeper notarization prompts. Release binaries are built in CI and
+> published with SHA256 checksums and a SLSA build-provenance attestation.
+
 ### From source
 
 ```bash
@@ -87,7 +99,7 @@ cd datacow
 go build -o datacow ./cmd
 ```
 
-Go 1.22 or later required.
+Go 1.25 or later required.
 
 ---
 
@@ -131,6 +143,11 @@ Early development. Core TUI is functional and usable against PostgreSQL and MySQ
 
 ---
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). For security
+issues, please follow [SECURITY.md](SECURITY.md) and report privately.
+
 ## License
 
-TBD.
+[MIT](LICENSE) © Per Olesen.
