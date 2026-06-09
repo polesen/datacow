@@ -82,19 +82,10 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           additional_permissions: |
             actions: read
-          custom_instructions: |
-            Before doing any work, read CLAUDE.md in the repo root. It contains all architectural decisions, conventions, and rules that must be followed.
-
-            When implementing a task from tasks/ready/ or tasks/drafts/, follow the Definition of Done checklist in .claude/skills/done/SKILL.md exactly and in order. Do not report the task complete until all steps have passed. The checklist ends with moving the task file to tasks/done/, committing, pushing the branch, and opening a PR — these are mandatory, not optional.
-          claude_args: >-
-            --allowedTools
-            Read,Edit,Write,Glob,Grep,
-            Bash(go build*),
-            Bash(go test*),
-            Bash(gotestsum*),
-            Bash(make*),
-            Bash(staticcheck*),
-            Bash(golangci-lint*),
-            Bash(git *),
-            Bash(gh *)
+          # `custom_instructions` was removed in claude-code-action v1; the
+          # documented replacement is `--append-system-prompt` (layers on top of
+          # the default @claude behaviour rather than replacing the prompt).
+          claude_args: |
+            --append-system-prompt "Before doing any work, read CLAUDE.md in the repo root. It contains all architectural decisions, conventions, and rules that must be followed. When implementing a task from tasks/ready/ or tasks/drafts/, follow the Definition of Done checklist in .claude/skills/done/SKILL.md exactly and in order. Do not report the task complete until all steps have passed. The checklist ends with moving the task file to tasks/done/, committing, pushing the branch, and opening a PR — these are mandatory, not optional."
+            --allowedTools Read,Edit,Write,Glob,Grep,Bash(go build*),Bash(go test*),Bash(gotestsum*),Bash(make*),Bash(staticcheck*),Bash(golangci-lint*),Bash(git *),Bash(gh *)
 

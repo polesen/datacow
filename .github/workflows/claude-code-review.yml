@@ -12,9 +12,10 @@ on:
 
 jobs:
   claude-review:
-    # Disabled: automated review on every PR burns too many tokens for a solo project.
-    # Use @claude manually on PRs where a review is wanted.
-    if: false
+    # Disabled by default: automated review on every PR burns too many tokens for
+    # a solo project. Use @claude manually on PRs where a review is wanted, or set
+    # the repo variable ENABLE_AUTO_REVIEW=true to turn this on.
+    if: ${{ vars.ENABLE_AUTO_REVIEW == 'true' }}
 
     runs-on: ubuntu-latest
     permissions:
