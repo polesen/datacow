@@ -49,16 +49,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          prerelease=""
+          args=(--title "${GITHUB_REF_NAME}" --generate-notes --verify-tag)
           case "${{ steps.tarball.outputs.version }}" in
-            *-*) prerelease="--prerelease" ;;
+            *-*) args+=(--prerelease) ;;
           esac
           gh release create "${GITHUB_REF_NAME}" \
             "${{ steps.tarball.outputs.tarball }}" \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            --verify-tag \
-            $prerelease
+            "${args[@]}"
 
       # Build-from-source Homebrew formula. Homebrew installs the Go toolchain
       # as a build-only dependency, verifies the tarball against the pinned
@@ -76,28 +73,7 @@ jobs:
 
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/polesen/homebrew-tap.git" tap
           mkdir -p tap/Formula
-          # NOTE: #{...} are Ruby interpolations for the formula; the unquoted
-          # heredoc only expands $-prefixed shell vars, so they pass through.
-          cat > tap/Formula/datacow.rb <<EOF
-          class Datacow < Formula
-            desc "Zero-config terminal database explorer — like k9s or lazygit, but for databases"
-            homepage "https://github.com/polesen/datacow"
-            url "${url}"
-            sha256 "${sha}"
-            license "MIT"
-            head "https://github.com/polesen/datacow.git", branch: "main"
-
-            depends_on "go" => :build
-
-            def install
-              system "go", "build", *std_go_args(ldflags: "-s -w -X main.version=#{version}"), "./cmd"
-            end
-
-            test do
-              assert_match version.to_s, shell_output("#{bin}/datacow --version")
-            end
-          end
-          EOF
+          bash scripts/gen-formula.sh "$url" "$sha" > tap/Formula/datacow.rb
 
           cd tap
           git config user.name "datacow-release-bot"

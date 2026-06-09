@@ -67,3 +67,59 @@ jobs:
 
       - name: Test
         run: make test
+
+  # Verifies the release plumbing without cutting a release: lints all workflows,
+  # then renders the Homebrew formula with the shared generator and actually
+  # builds + installs + tests it from source via Homebrew on Linux. The formula
+  # is OS-agnostic (pure Go, no cask/xattr), so a Linux install faithfully
+  # exercises SHA256 verification, the `go build` + version ldflags, and the
+  # formula's own `test` block — no macOS runner needed.
+  formula:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # git archive needs the tagged/HEAD tree
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Lint the workflows this release pipeline owns. (The claude.* workflows
+      # have separate, pre-existing findings tracked outside this PR.)
+      - name: Lint workflows (actionlint)
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          "$(go env GOPATH)/bin/actionlint" .github/workflows/ci.yml .github/workflows/release.yml
+
+      - name: Build source tarball
+        id: tarball
+        run: |
+          version="0.0.0"
+          tarball="datacow-${version}.tar.gz"
+          git archive --format=tar.gz --prefix="datacow-${version}/" -o "$tarball" HEAD
+          {
+            echo "sha256=$(sha256sum "$tarball" | cut -d' ' -f1)"
+            echo "path=$PWD/$tarball"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Render formula
+        run: |
+          bash scripts/gen-formula.sh \
+            "file://${{ steps.tarball.outputs.path }}" \
+            "${{ steps.tarball.outputs.sha256 }}" > datacow.rb
+          cat datacow.rb
+
+      - name: Set up local tap
+        run: |
+          brew tap-new --no-git local/test
+          cp datacow.rb "$(brew --repository local/test)/Formula/datacow.rb"
+
+      - name: Lint formula style
+        run: brew style local/test/datacow
+
+      - name: Build, install and test from source
+        run: |
+          brew install --build-from-source --verbose local/test/datacow
+          brew test local/test/datacow
+          datacow --version
