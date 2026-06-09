@@ -6,45 +6,102 @@ on:
       - "v*"
 
 permissions:
-  contents: write       # create the GitHub Release and upload artifacts
-  id-token: write       # OIDC token for build provenance attestation
+  contents: write       # create the GitHub Release and upload the source tarball
+  id-token: write       # OIDC token for build-provenance attestation
   attestations: write   # write SLSA build provenance
 
 jobs:
-  goreleaser:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # GoReleaser needs full history for the changelog
+          fetch-depth: 0   # full history for release notes
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Validate GoReleaser config
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          version: "~> v2"
-          args: check
+      - name: Sanity build
+        run: go build ./...
 
-      - name: Run GoReleaser
-        id: goreleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          version: "~> v2"
-          args: release --clean
-        env:
-          # Default token — creates the release in this repo.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Fine-grained PAT with Contents:write on polesen/homebrew-tap.
-          # Lets GoReleaser push the bumped formula to the tap repo.
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+      - name: Create source tarball
+        id: tarball
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tarball="datacow-${version}.tar.gz"
+          # Reproducible source archive of the exact tagged tree.
+          git archive --format=tar.gz --prefix="datacow-${version}/" -o "$tarball" "${GITHUB_REF_NAME}"
+          sha="$(sha256sum "$tarball" | cut -d' ' -f1)"
+          {
+            echo "version=$version"
+            echo "tarball=$tarball"
+            echo "sha256=$sha"
+          } >>"$GITHUB_OUTPUT"
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: |
-            dist/*.tar.gz
-            dist/checksums.txt
+          subject-path: ${{ steps.tarball.outputs.tarball }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prerelease=""
+          case "${{ steps.tarball.outputs.version }}" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "${GITHUB_REF_NAME}" \
+            "${{ steps.tarball.outputs.tarball }}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag \
+            $prerelease
+
+      # Build-from-source Homebrew formula. Homebrew installs the Go toolchain
+      # as a build-only dependency, verifies the tarball against the pinned
+      # SHA256, and compiles locally — no signing/notarization, never quarantined.
+      # Stable tags only; prereleases (vX.Y.Z-rc1) do not bump the formula.
+      - name: Update Homebrew tap
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          version="${{ steps.tarball.outputs.version }}"
+          sha="${{ steps.tarball.outputs.sha256 }}"
+          tarball="${{ steps.tarball.outputs.tarball }}"
+          url="https://github.com/polesen/datacow/releases/download/${GITHUB_REF_NAME}/${tarball}"
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/polesen/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          # NOTE: #{...} are Ruby interpolations for the formula; the unquoted
+          # heredoc only expands $-prefixed shell vars, so they pass through.
+          cat > tap/Formula/datacow.rb <<EOF
+          class Datacow < Formula
+            desc "Zero-config terminal database explorer — like k9s or lazygit, but for databases"
+            homepage "https://github.com/polesen/datacow"
+            url "${url}"
+            sha256 "${sha}"
+            license "MIT"
+            head "https://github.com/polesen/datacow.git", branch: "main"
+
+            depends_on "go" => :build
+
+            def install
+              system "go", "build", *std_go_args(ldflags: "-s -w -X main.version=#{version}"), "./cmd"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/datacow --version")
+            end
+          end
+          EOF
+
+          cd tap
+          git config user.name "datacow-release-bot"
+          git config user.email "datacow-release-bot@users.noreply.github.com"
+          git add Formula/datacow.rb
+          git commit -m "datacow ${version}"
+          git push

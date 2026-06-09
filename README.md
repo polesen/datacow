@@ -87,9 +87,10 @@ brew install polesen/tap/datacow
 
 Upgrade later with `brew upgrade datacow`.
 
-> Distributed through Homebrew, which installs without triggering macOS
-> Gatekeeper notarization prompts. Release binaries are built in CI and
-> published with SHA256 checksums and a SLSA build-provenance attestation.
+> Datacow is a **build-from-source** formula: Homebrew installs the Go toolchain
+> as a build-only dependency, verifies the release tarball against the SHA256
+> pinned in the formula, and compiles it locally. Because the binary is built on
+> your machine it is never quarantined and needs no Apple signing/notarization.
 
 ### From source
 

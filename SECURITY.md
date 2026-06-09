@@ -25,10 +25,14 @@ handling issues, or supply-chain concerns are especially valued.
 
 ## Supply chain
 
-Release binaries are built by GitHub Actions via GoReleaser. Each release
-publishes a `checksums.txt` (SHA256) file and a signed SLSA build-provenance
-attestation. You can verify a downloaded artifact with:
+Datacow is distributed via Homebrew as a **build-from-source** formula: Homebrew
+downloads the release source tarball, verifies it against the SHA256 pinned in
+the formula, and compiles it locally with the Go toolchain. No prebuilt binaries
+are shipped, so there is nothing to sign or notarize.
+
+Each release also publishes the source tarball as a GitHub Release asset with a
+SLSA build-provenance attestation. You can verify it with:
 
 ```bash
-gh attestation verify <artifact> --repo polesen/datacow
+gh attestation verify datacow-<version>.tar.gz --repo polesen/datacow
 ```
