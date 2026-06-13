@@ -124,7 +124,13 @@ jobs:
       - name: Lint formula style
         run: brew style local/test/datacow
 
+      # Homebrew's Linux build sandbox needs a working rootless bwrap, which
+      # GitHub's ubuntu-latest runners block via AppArmor's unprivileged
+      # userns restriction. The runner itself is already an isolated,
+      # ephemeral sandbox, so disable Homebrew's nested one.
       - name: Build, install and test from source
+        env:
+          HOMEBREW_NO_SANDBOX_LINUX: "1"
         run: |
           brew install --build-from-source --verbose local/test/datacow
           brew test local/test/datacow
