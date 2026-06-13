@@ -79,6 +79,19 @@ datacow --config datacow.yaml
 
 ## Installation
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew install polesen/tap/datacow
+```
+
+Upgrade later with `brew upgrade datacow`.
+
+> Datacow is a **build-from-source** formula: Homebrew installs the Go toolchain
+> as a build-only dependency, verifies the release tarball against the SHA256
+> pinned in the formula, and compiles it locally. Because the binary is built on
+> your machine it is never quarantined and needs no Apple signing/notarization.
+
 ### From source
 
 ```bash
@@ -87,7 +100,7 @@ cd datacow
 go build -o datacow ./cmd
 ```
 
-Go 1.22 or later required.
+Go 1.25 or later required.
 
 ---
 
@@ -131,6 +144,11 @@ Early development. Core TUI is functional and usable against PostgreSQL and MySQ
 
 ---
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). For security
+issues, please follow [SECURITY.md](SECURITY.md) and report privately.
+
 ## License
 
-TBD.
+[MIT](LICENSE) © Per Olesen.

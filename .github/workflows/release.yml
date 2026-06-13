@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write       # create the GitHub Release and upload the source tarball
+  id-token: write       # OIDC token for build-provenance attestation
+  attestations: write   # write SLSA build provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for release notes
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Sanity build
+        run: go build ./...
+
+      - name: Create source tarball
+        id: tarball
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tarball="datacow-${version}.tar.gz"
+          # Reproducible source archive of the exact tagged tree.
+          git archive --format=tar.gz --prefix="datacow-${version}/" -o "$tarball" "${GITHUB_REF_NAME}"
+          sha="$(sha256sum "$tarball" | cut -d' ' -f1)"
+          {
+            echo "version=$version"
+            echo "tarball=$tarball"
+            echo "sha256=$sha"
+          } >>"$GITHUB_OUTPUT"
+
+      # actions/attest generates a SLSA build-provenance attestation by default
+      # from just subject-path. (attest-build-provenance is now a thin wrapper
+      # over this; actions/attest is the recommended action for new pipelines.)
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.tarball.outputs.tarball }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          args=(--title "${GITHUB_REF_NAME}" --generate-notes --verify-tag)
+          case "${{ steps.tarball.outputs.version }}" in
+            *-*) args+=(--prerelease) ;;
+          esac
+          gh release create "${GITHUB_REF_NAME}" \
+            "${{ steps.tarball.outputs.tarball }}" \
+            "${args[@]}"
+
+      # Build-from-source Homebrew formula. Homebrew installs the Go toolchain
+      # as a build-only dependency, verifies the tarball against the pinned
+      # SHA256, and compiles locally — no signing/notarization, never quarantined.
+      # Stable tags only; prereleases (vX.Y.Z-rc1) do not bump the formula.
+      - name: Update Homebrew tap
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          version="${{ steps.tarball.outputs.version }}"
+          sha="${{ steps.tarball.outputs.sha256 }}"
+          tarball="${{ steps.tarball.outputs.tarball }}"
+          url="https://github.com/polesen/datacow/releases/download/${GITHUB_REF_NAME}/${tarball}"
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/polesen/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          bash scripts/gen-formula.sh "$url" "$sha" > tap/Formula/datacow.rb
+
+          cd tap
+          git config user.name "datacow-release-bot"
+          git config user.email "datacow-release-bot@users.noreply.github.com"
+          git add Formula/datacow.rb
+          git commit -m "datacow ${version}"
+          git push

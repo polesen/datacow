@@ -1,0 +1,50 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please do **not** include
+        connection strings, credentials, or real data in this report.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `datacow --connection-string=...`
+        2. Press ...
+        3. See ...
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - PostgreSQL
+        - MySQL
+        - Other / not applicable
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Datacow version
+      description: Output of `datacow --version`.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / terminal
+      placeholder: "macOS 15 / iTerm2"
+    validations:
+      required: false
