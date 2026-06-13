@@ -9,6 +9,11 @@ updates:
       go-dependencies:
         patterns:
           - "*"
+    ignore:
+      # No tagged release of this subpackage contains exp/teatest at
+      # v0.1.0+ (the charmbracelet/x monorepo restructured), so Dependabot
+      # can't resolve a bump and fails the whole grouped update.
+      - dependency-name: "github.com/charmbracelet/x/exp/teatest"
 
   - package-ecosystem: github-actions
     directory: "/"
