@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
 
+# Least privilege: both jobs only read the repo (build, lint, test, and
+# brew-install from a locally built tarball). No writes, comments, or PRs.
+permissions:
+  contents: read
+
 jobs:
   ci:
     runs-on: ubuntu-latest
