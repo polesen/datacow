@@ -4,6 +4,15 @@ Zero-config terminal database explorer. Connect with a single connection string 
 
 Like [k9s](https://github.com/derailed/k9s) or [lazygit](https://github.com/jesseduffield/lazygit), but for databases.
 
+[![Latest release](https://img.shields.io/github/v/release/polesen/datacow?sort=semver&logo=github)](https://github.com/polesen/datacow/releases/latest)
+[![Homebrew](https://img.shields.io/badge/brew-polesen%2Ftap%2Fdatacow-FBB040?logo=homebrew&logoColor=white)](https://github.com/polesen/homebrew-tap)
+[![CI](https://img.shields.io/github/actions/workflow/status/polesen/datacow/ci.yml?branch=main&logo=github&label=CI)](https://github.com/polesen/datacow/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/polesen/datacow)](LICENSE)
+
+```bash
+brew install polesen/tap/datacow
+```
+
 ---
 
 > **Experiment in progress**
