@@ -93,7 +93,7 @@ jobs:
       # ubuntu-latest does not put Homebrew on PATH for job steps; set it up
       # explicitly so the brew style/install/test steps below can run on Linux.
       - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@master
+        uses: Homebrew/actions/setup-homebrew@2026.09.21.1
 
       # Lint the workflows this release pipeline owns. (The claude.* workflows
       # have separate, pre-existing findings tracked outside this PR.)
